@@ -60,7 +60,15 @@ const MAX_RESTART_DELAY = Duration.seconds(10);
 const MAX_PREFLIGHT_FAILURE_ATTEMPTS = 5;
 const DEFAULT_BACKEND_READINESS_TIMEOUT = Duration.minutes(1);
 const DEFAULT_BACKEND_READINESS_INTERVAL = Duration.millis(100);
-const DEFAULT_BACKEND_READINESS_REQUEST_TIMEOUT = Duration.seconds(1);
+// A probe whose connect() races the backend's listen() call can have its SYN
+// silently dropped instead of getting an immediate ECONNREFUSED, so it hangs
+// until this cap fires instead of failing fast like every other probe. This
+// happens on effectively every boot (observed ~1000-1002ms, every time) and
+// was the single largest chunk of the desktop readiness wait. Successful
+// probes against the loopback backend take single-digit ms, so 250ms leaves
+// large headroom while cutting that stall by ~750ms without touching the
+// overall readiness budget (DEFAULT_BACKEND_READINESS_TIMEOUT) at all.
+const DEFAULT_BACKEND_READINESS_REQUEST_TIMEOUT = Duration.millis(250);
 const DEFAULT_BACKEND_TERMINATE_GRACE = Duration.seconds(2);
 const BACKEND_READINESS_PATH = "/.well-known/t3/environment";
 
