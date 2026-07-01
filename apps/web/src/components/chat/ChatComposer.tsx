@@ -93,6 +93,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
+  ArrowUpIcon,
   BotIcon,
   CircleAlertIcon,
   ListTodoIcon,
@@ -1135,8 +1136,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [activePendingIsResponding, activePendingProgress, activePendingResolvedAnswers],
   );
   const collapsedComposerPrimaryActionDisabled =
-    phase === "running" || isSendBusy || isConnecting || !composerSendState.hasSendableContent;
-  const collapsedComposerPrimaryActionLabel = "Send message";
+    isSendBusy || isConnecting || !composerSendState.hasSendableContent;
+  const collapsedComposerPrimaryActionLabel =
+    phase === "running" ? "Send steering message" : "Send message";
   const showMobilePendingAnswerActions =
     isMobileViewport && !isComposerCollapsedMobile && pendingPrimaryAction !== null;
 
@@ -2128,6 +2130,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
                   onRespondToApproval={onRespondToApproval}
                 />
+                {phase === "running" ? (
+                  <ComposerPrimaryActions
+                    compact
+                    pendingAction={null}
+                    isRunning
+                    showPlanFollowUpPrompt={false}
+                    promptHasText={false}
+                    isSendBusy={isSendBusy}
+                    isConnecting={isConnecting}
+                    isEnvironmentUnavailable={environmentUnavailable !== null}
+                    isPreparingWorktree={false}
+                    hasSendableContent={false}
+                    preserveComposerFocusOnPointerDown
+                    onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                    onInterrupt={handleInterruptPrimaryAction}
+                    onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                  />
+                ) : null}
               </div>
             </div>
           ) : isComposerCollapsedMobile && pendingUserInputs.length > 0 ? (
@@ -2166,11 +2186,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   >
                     {activePendingProgress?.customAnswer || "Write custom answer"}
                   </button>
-                  {activePendingProgress?.activeQuestion?.multiSelect ? (
+                  {activePendingProgress?.activeQuestion?.multiSelect || phase === "running" ? (
                     <ComposerPrimaryActions
                       compact
-                      pendingAction={pendingPrimaryAction}
-                      isRunning={false}
+                      pendingAction={
+                        activePendingProgress?.activeQuestion?.multiSelect
+                          ? pendingPrimaryAction
+                          : null
+                      }
+                      isRunning={phase === "running"}
                       showPlanFollowUpPrompt={false}
                       promptHasText={false}
                       isSendBusy={isSendBusy}
@@ -2219,16 +2243,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   submitComposer();
                 }}
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path
-                    d="M8 3L8 13M8 3L4 7M8 3L12 7"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+                <ArrowUpIcon className="size-4" strokeWidth={2.2} aria-hidden="true" />
               </button>
+              {phase === "running" ? (
+                <ComposerPrimaryActions
+                  compact
+                  pendingAction={null}
+                  isRunning
+                  showPlanFollowUpPrompt={false}
+                  promptHasText={false}
+                  isSendBusy={isSendBusy}
+                  isConnecting={isConnecting}
+                  isEnvironmentUnavailable={environmentUnavailable !== null}
+                  isPreparingWorktree={false}
+                  hasSendableContent={false}
+                  preserveComposerFocusOnPointerDown
+                  onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                  onInterrupt={handleInterruptPrimaryAction}
+                  onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                />
+              ) : null}
             </div>
           ) : null}
 
@@ -2431,7 +2465,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   <ComposerPrimaryActions
                     compact
                     pendingAction={pendingPrimaryAction}
-                    isRunning={false}
+                    isRunning={phase === "running"}
                     showPlanFollowUpPrompt={false}
                     promptHasText={false}
                     isSendBusy={isSendBusy}
@@ -2457,6 +2491,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
                 onRespondToApproval={onRespondToApproval}
               />
+              {phase === "running" ? (
+                <ComposerPrimaryActions
+                  compact={isComposerPrimaryActionsCompact}
+                  pendingAction={null}
+                  isRunning
+                  showPlanFollowUpPrompt={false}
+                  promptHasText={false}
+                  isSendBusy={isSendBusy}
+                  isConnecting={isConnecting}
+                  isEnvironmentUnavailable={environmentUnavailable !== null}
+                  isPreparingWorktree={false}
+                  hasSendableContent={false}
+                  preserveComposerFocusOnPointerDown={isMobileViewport}
+                  onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                  onInterrupt={handleInterruptPrimaryAction}
+                  onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                />
+              ) : null}
             </div>
           ) : (
             <div
