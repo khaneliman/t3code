@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   isProviderDriverKind,
+  type MessageId,
   ProjectId,
   type ModelSelection,
   type ProviderDriverKind,
@@ -387,6 +388,7 @@ export async function waitForStartedServerThread(
 export interface LocalDispatchSnapshot {
   startedAt: string;
   preparingWorktree: boolean;
+  ackMessageId: MessageId | null;
   latestTurnTurnId: TurnId | null;
   latestTurnRequestedAt: string | null;
   latestTurnStartedAt: string | null;
@@ -397,13 +399,14 @@ export interface LocalDispatchSnapshot {
 
 export function createLocalDispatchSnapshot(
   activeThread: Thread | undefined,
-  options?: { preparingWorktree?: boolean },
+  options?: { preparingWorktree?: boolean; ackMessageId?: MessageId | null },
 ): LocalDispatchSnapshot {
   const latestTurn = activeThread?.latestTurn ?? null;
   const session = activeThread?.session ?? null;
   return {
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
+    ackMessageId: options?.ackMessageId ?? null,
     latestTurnTurnId: latestTurn?.turnId ?? null,
     latestTurnRequestedAt: latestTurn?.requestedAt ?? null,
     latestTurnStartedAt: latestTurn?.startedAt ?? null,
@@ -418,6 +421,7 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   phase: SessionPhase;
   latestTurn: Thread["latestTurn"] | null;
   session: Thread["session"] | null;
+  messages: ReadonlyArray<Pick<ChatMessage, "id">>;
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
@@ -426,6 +430,10 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     return false;
   }
   if (input.hasPendingApproval || input.hasPendingUserInput || Boolean(input.threadError)) {
+    return true;
+  }
+  const ackMessageId = input.localDispatch.ackMessageId;
+  if (ackMessageId !== null && input.messages.some((message) => message.id === ackMessageId)) {
     return true;
   }
 

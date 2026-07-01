@@ -145,6 +145,7 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
     readonly requiresNewThreadForModelChange?: boolean;
+    readonly interruptTurnEffect?: Effect.Effect<void>;
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir =
@@ -221,7 +222,7 @@ describe("ProviderCommandReactor", () => {
         turnId: asTurnId("turn-1"),
       }),
     );
-    const interruptTurn = vi.fn((_: unknown) => Effect.void);
+    const interruptTurn = vi.fn((_: unknown) => input?.interruptTurnEffect ?? Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
     const stopSession = vi.fn((input: unknown) =>
@@ -1636,6 +1637,58 @@ describe("ProviderCommandReactor", () => {
       threadId: "thread-1",
     });
   });
+
+  effectIt.effect("does not block later provider intents behind an in-flight interrupt", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({ interruptTurnEffect: Effect.never }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
+
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-hanging-interrupt"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-hanging-interrupt"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+
+      yield* harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.make("cmd-turn-interrupt-hangs"),
+        threadId: ThreadId.make("thread-1"),
+        turnId: asTurnId("turn-hanging-interrupt"),
+        createdAt: now,
+      });
+
+      yield* Effect.promise(() => waitFor(() => harness.interruptTurn.mock.calls.length === 1));
+
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-after-hanging-interrupt"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-after-hanging-interrupt"),
+          role: "user",
+          text: "steer after interrupt",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+    }),
+  );
 
   it("starts a fresh session when only projected session state exists", async () => {
     const harness = await createHarness();

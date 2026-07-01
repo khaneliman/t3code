@@ -1,4 +1,11 @@
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  TurnId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { Thread } from "../types";
@@ -360,6 +367,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         phase: "ready",
         latestTurn: completedTurn,
         session: readySession,
+        messages: [],
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
@@ -385,6 +393,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         phase: "ready",
         latestTurn: newerTurn,
         session: { ...readySession, updatedAt: newerTurn.completedAt },
+        messages: [],
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
@@ -415,6 +424,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
           status: "running",
           activeTurnId: TurnId.make("turn-other"),
         },
+        messages: [],
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
@@ -430,6 +440,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
           status: "running",
           activeTurnId: runningTurn.turnId,
         },
+        messages: [],
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
@@ -444,6 +455,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       phase: "ready" as const,
       latestTurn: null,
       session: null,
+      messages: [],
       hasPendingApproval: false,
       hasPendingUserInput: false,
       threadError: null,
@@ -452,5 +464,65 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingApproval: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingUserInput: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, threadError: "failed" })).toBe(true);
+  });
+
+  it("acknowledges a steering dispatch when its user message persists during a running turn", () => {
+    const ackMessageId = MessageId.make("steer-message");
+    const runningTurn = {
+      ...completedTurn,
+      state: "running" as const,
+      completedAt: null,
+    };
+    const localDispatch = createLocalDispatchSnapshot(
+      makeThread({ latestTurn: runningTurn, session: { ...readySession, status: "running" } }),
+      { ackMessageId },
+    );
+
+    expect(
+      hasServerAcknowledgedLocalDispatch({
+        localDispatch,
+        phase: "running",
+        latestTurn: runningTurn,
+        session: {
+          ...readySession,
+          status: "running",
+          activeTurnId: runningTurn.turnId,
+        },
+        messages: [{ id: ackMessageId }],
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps a steering dispatch busy until its user message persists", () => {
+    const ackMessageId = MessageId.make("steer-message-pending");
+    const runningTurn = {
+      ...completedTurn,
+      state: "running" as const,
+      completedAt: null,
+    };
+    const localDispatch = createLocalDispatchSnapshot(
+      makeThread({ latestTurn: runningTurn, session: { ...readySession, status: "running" } }),
+      { ackMessageId },
+    );
+
+    expect(
+      hasServerAcknowledgedLocalDispatch({
+        localDispatch,
+        phase: "running",
+        latestTurn: runningTurn,
+        session: {
+          ...readySession,
+          status: "running",
+          activeTurnId: runningTurn.turnId,
+        },
+        messages: [],
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(false);
   });
 });

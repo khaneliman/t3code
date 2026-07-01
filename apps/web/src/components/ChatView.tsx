@@ -380,6 +380,7 @@ function useLocalDispatchState(input: {
         phase: input.phase,
         latestTurn: input.activeLatestTurn,
         session: input.activeThread?.session ?? null,
+        messages: input.activeThread?.messages ?? [],
         hasPendingApproval: input.activePendingApproval !== null,
         hasPendingUserInput: input.activePendingUserInput !== null,
         threadError: input.threadError,
@@ -388,6 +389,7 @@ function useLocalDispatchState(input: {
       input.activeLatestTurn,
       input.activePendingApproval,
       input.activePendingUserInput,
+      input.activeThread?.messages,
       input.activeThread?.session,
       input.phase,
       input.threadError,
@@ -396,14 +398,16 @@ function useLocalDispatchState(input: {
   );
   const activeLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
   const beginLocalDispatch = useCallback(
-    (options?: { preparingWorktree?: boolean }) => {
+    (options?: { preparingWorktree?: boolean; ackMessageId?: MessageId | null }) => {
       const preparingWorktree = Boolean(options?.preparingWorktree);
       setLocalDispatch((current) => {
         const active = serverAcknowledgedLocalDispatch ? null : current;
         if (active) {
-          return active.preparingWorktree === preparingWorktree
+          const ackMessageId = options?.ackMessageId ?? active.ackMessageId;
+          return active.preparingWorktree === preparingWorktree &&
+            active.ackMessageId === ackMessageId
             ? active
-            : { ...active, preparingWorktree };
+            : { ...active, preparingWorktree, ackMessageId };
         }
         return createLocalDispatchSnapshot(input.activeThread, options);
       });
@@ -3980,9 +3984,6 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
-    sendInFlightRef.current = true;
-    beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
-
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerElementContextsSnapshot = [...composerElementContexts];
@@ -4002,6 +4003,12 @@ function ChatViewContent(props: ChatViewProps) {
     );
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
+    const localDispatchAckMessageId = phase === "running" ? messageIdForSend : null;
+    sendInFlightRef.current = true;
+    beginLocalDispatch({
+      preparingWorktree: Boolean(baseBranchForWorktree),
+      ackMessageId: localDispatchAckMessageId,
+    });
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,
       model: ctxSelectedModel,
@@ -4162,7 +4169,7 @@ function ChatViewContent(props: ChatViewProps) {
                 : {}),
             }
           : undefined;
-      beginLocalDispatch({ preparingWorktree: false });
+      beginLocalDispatch({ preparingWorktree: false, ackMessageId: localDispatchAckMessageId });
       const startResult = await startThreadTurn({
         environmentId,
         input: {
