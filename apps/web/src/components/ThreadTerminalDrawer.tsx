@@ -19,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import { Terminal, type ITheme } from "@xterm/xterm";
+import "@xterm/xterm/css/xterm.css";
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
