@@ -546,15 +546,26 @@ const resolveCommandPathForPlatform = Effect.fn("shell.resolveCommandPathForPlat
     }
   }
 
-  for (const pathEntry of pathEntries) {
-    for (const candidate of commandCandidates) {
-      const candidatePath = path.join(pathEntry, candidate);
-      if (yield* isExecutableFile(candidatePath, platform, windowsPathExtensions)) {
-        return candidatePath;
-      }
-    }
+  const candidatePaths = pathEntries.flatMap((pathEntry) =>
+    commandCandidates.map((candidate) => path.join(pathEntry, candidate)),
+  );
+  const results = yield* Effect.all(
+    candidatePaths.map((candidatePath) =>
+      isExecutableFile(candidatePath, platform, windowsPathExtensions).pipe(
+        Effect.map((executable) => ({ candidatePath, executable })),
+      ),
+    ),
+    { concurrency: "unbounded" },
+  );
+  // `Effect.all` preserves input order regardless of completion order, so the
+  // first match here is still the highest-priority PATH entry, same as the
+  // sequential loop it replaces — just with all the stat() calls concurrent
+  // instead of one at a time (PATH can be very long, e.g. under Nix).
+  const match = results.find((result) => result.executable);
+  if (match === undefined) {
+    return yield* new CommandResolutionError({ command, reason: "not-found" });
   }
-  return yield* new CommandResolutionError({ command, reason: "not-found" });
+  return match.candidatePath;
 });
 
 export const resolveCommandPath = Effect.fn("shell.resolveCommandPath")(function* (
