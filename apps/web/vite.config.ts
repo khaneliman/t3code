@@ -261,6 +261,21 @@ export default defineConfig(() => {
       outDir: "dist",
       emptyOutDir: true,
       sourcemap: buildSourcemap,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes("node_modules")) {
+              return;
+            }
+            if (id.includes("/lexical/") || id.includes("/@lexical/")) {
+              return "vendor-lexical";
+            }
+            if (id.includes("/@dnd-kit/")) {
+              return "vendor-dnd-kit";
+            }
+          },
+        },
+      },
     },
     test: {
       projects: [defineProject(unitTestProject)],
