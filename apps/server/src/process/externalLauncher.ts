@@ -167,12 +167,17 @@ const resolveAvailableCommand = Effect.fn("externalLauncher.resolveAvailableComm
   commands: ReadonlyArray<string>,
   env: NodeJS.ProcessEnv,
 ): Effect.fn.Return<Option.Option<string>, never, FileSystem.FileSystem | Path.Path> {
-  for (const command of commands) {
-    if (yield* isCommandAvailable(command, { env })) {
-      return Option.some(command);
-    }
-  }
-  return Option.none();
+  const results = yield* Effect.all(
+    commands.map((command) =>
+      isCommandAvailable(command, { env }).pipe(
+        Effect.map((available) => ({ command, available })),
+      ),
+    ),
+    { concurrency: "unbounded" },
+  );
+  // Same order-preserving-under-concurrency reasoning as resolveCommandPathForPlatform.
+  const match = results.find((result) => result.available);
+  return match === undefined ? Option.none() : Option.some(match.command);
 });
 
 function encodeUtf16LeBase64(input: string): string {
@@ -426,23 +431,22 @@ const buildAvailableEditors = Effect.fn("externalLauncher.buildAvailableEditors"
   never,
   FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
 > {
-  const available: EditorId[] = [];
+  const checks = yield* Effect.all(
+    EDITORS.map((editor) =>
+      (editor.commands === null
+        ? resolveUsableFileManagerCommand(platform, env).pipe(
+            Effect.map((command) => command !== undefined),
+          )
+        : resolveAvailableCommand(editor.commands, env).pipe(Effect.map(Option.isSome))
+      ).pipe(Effect.map((available) => ({ id: editor.id, available }))),
+    ),
+    // Checking each editor is independent, and each check itself fans out
+    // across PATH entries — sequentially this compounds badly on long PATHs
+    // (e.g. Nix), so run every editor's check concurrently too.
+    { concurrency: "unbounded" },
+  );
 
-  for (const editor of EDITORS) {
-    if (editor.commands === null) {
-      if ((yield* resolveUsableFileManagerCommand(platform, env)) !== undefined) {
-        available.push(editor.id);
-      }
-      continue;
-    }
-
-    const command = yield* resolveAvailableCommand(editor.commands, env);
-    if (Option.isSome(command)) {
-      available.push(editor.id);
-    }
-  }
-
-  return available;
+  return checks.filter((check) => check.available).map((check) => check.id);
 });
 
 const resolveBrowserLaunch = Effect.fn("externalLauncher.resolveBrowserLaunch")(function* (
