@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind } from "@t3tools/contracts";
 
+import { PROVIDER_OPTIONS } from "../../session-logic";
+import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
+import { AntigravityIcon } from "../Icons";
 import { DRIVER_OPTION_BY_VALUE } from "./providerDriverMeta";
 import {
   deriveProviderSettingsFields,
@@ -20,6 +23,31 @@ describe("ProviderSettingsForm helpers", () => {
       "shadowHomePath",
       "launchArgs",
     ]);
+  });
+
+  it("derives Antigravity fields in configured order", () => {
+    const antigravity = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("antigravity")];
+
+    expect(antigravity).toBeDefined();
+    expect(deriveProviderSettingsFields(antigravity!).map((field) => field.key)).toEqual([
+      "binaryPath",
+      "homePath",
+      "brainPath",
+      "settingsPath",
+      "languageServerAddress",
+      "csrfToken",
+    ]);
+  });
+
+  it("exposes Antigravity in provider options and icon mapping", () => {
+    const provider = ProviderDriverKind.make("antigravity");
+
+    expect(PROVIDER_OPTIONS.find((option) => option.value === provider)).toMatchObject({
+      label: "Antigravity",
+      available: true,
+      pickerSidebarBadge: "new",
+    });
+    expect(PROVIDER_ICON_BY_PROVIDER[provider]).toBe(AntigravityIcon);
   });
 
   it("sources labels and descriptions from schema annotations", () => {
