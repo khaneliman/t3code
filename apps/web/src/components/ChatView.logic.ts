@@ -266,6 +266,23 @@ export function threadHasStarted(thread: Thread | null | undefined): boolean {
   );
 }
 
+/**
+ * Whether a route transition should drop locally buffered optimistic user
+ * messages.
+ *
+ * Draft-to-server promotion keeps the same thread id while `draftId` flips to
+ * `null`, and `threadHasStarted` switches the route to the server view as soon
+ * as the session exists — often before the server thread snapshot carries the
+ * first user message. Clearing on that transition blanks the just-sent message
+ * until the server catches up, so only a real thread change clears.
+ */
+export function shouldClearOptimisticUserMessages(input: {
+  previousThreadId: ThreadId | null;
+  nextThreadId: ThreadId | null;
+}): boolean {
+  return input.previousThreadId !== input.nextThreadId;
+}
+
 // `threadProvider` is the open branded driver kind carried by the session.
 // Unknown driver kinds degrade to `null` (i.e. "unlocked"), which is the safe
 // rollback / fork behavior — the routing layer is the right place to surface

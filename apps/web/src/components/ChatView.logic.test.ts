@@ -14,7 +14,9 @@ import {
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
   resolveSendEnvMode,
+  shouldClearOptimisticUserMessages,
   shouldWriteThreadErrorToCurrentServerThread,
+  threadHasStarted,
 } from "./ChatView.logic";
 
 const environmentId = EnvironmentId.make("environment-local");
@@ -452,5 +454,40 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingApproval: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingUserInput: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, threadError: "failed" })).toBe(true);
+  });
+});
+
+describe("shouldClearOptimisticUserMessages", () => {
+  it("keeps optimistic messages across draft-to-server promotion for the same thread", () => {
+    // Promotion happens as soon as the session exists — the server thread can
+    // still have zero messages at that point, so clearing here would blank the
+    // just-sent first message.
+    const promotedThread = makeThread({
+      session: { ...readySession, status: "running" },
+      messages: [],
+    });
+    expect(threadHasStarted(promotedThread)).toBe(true);
+
+    expect(
+      shouldClearOptimisticUserMessages({
+        previousThreadId: promotedThread.id,
+        nextThreadId: promotedThread.id,
+      }),
+    ).toBe(false);
+  });
+
+  it("clears optimistic messages when navigating to a different thread", () => {
+    expect(
+      shouldClearOptimisticUserMessages({
+        previousThreadId: threadId,
+        nextThreadId: ThreadId.make("thread-2"),
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearOptimisticUserMessages({
+        previousThreadId: null,
+        nextThreadId: threadId,
+      }),
+    ).toBe(true);
   });
 });
