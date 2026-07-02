@@ -209,6 +209,7 @@ describe("ProviderSessionReaper", () => {
                 : Option.none(),
             ),
           getThreadDetailById: () => Effect.die("unused"),
+          getThreadDetailSnapshotById: () => Effect.die("unused"),
         }),
       ),
       Layer.provideMerge(NodeServices.layer),

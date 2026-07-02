@@ -14,6 +14,7 @@ import type {
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThread,
+  OrchestrationThreadDetailSnapshot,
   OrchestrationThreadShell,
   ProjectId,
   ThreadId,
@@ -157,6 +158,21 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadDetailById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single active thread detail together with the projection snapshot
+   * sequence in one transaction.
+   *
+   * Reading the detail and the sequence separately lets an event commit in
+   * between, producing a snapshot whose `snapshotSequence` claims an event is
+   * applied while the detail body predates it — a client that dedupes replayed
+   * events by sequence then drops that event forever. Thread subscriptions
+   * must use this method instead of pairing `getThreadDetailById` with
+   * `getSnapshotSequence`.
+   */
+  readonly getThreadDetailSnapshotById: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
 }
 
 /**
