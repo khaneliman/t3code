@@ -17,6 +17,7 @@ import {
   parseLinuxTcpListenPortsForInodes,
   resolveAntigravityBrainPath,
   resolveAntigravityBinaryPath,
+  resolveAntigravityCliModelAlias,
   resolveAntigravityHomePath,
   resolveAntigravityModelLabel,
   resolveAntigravitySettingsPath,
@@ -74,6 +75,19 @@ describe("AntigravityProvider model helpers", () => {
         options: [{ id: "reasoningEffort", value: "high" }],
       }),
     ).toBe("Gemini 3.5 Flash (High)");
+    expect(
+      resolveAntigravityCliModelAlias({
+        instanceId: ProviderInstanceId.make("antigravity"),
+        model: "Gemini 3.5 Flash (Medium)",
+        options: [{ id: "reasoningEffort", value: "low" }],
+      }),
+    ).toBe("flash_lite");
+    expect(
+      resolveAntigravityCliModelAlias({
+        instanceId: ProviderInstanceId.make("antigravity"),
+        model: "pro",
+      }),
+    ).toBe("pro");
     expect(parseAntigravityModelsOutput("\nGemini 3.5 Flash (Medium)\n\nClaude Sonnet\n")).toEqual([
       "Gemini 3.5 Flash (Medium)",
       "Claude Sonnet",
@@ -136,7 +150,7 @@ describe("AntigravityProvider status probe", () => {
     }),
   );
 
-  it.effect("reports daemon missing after version and models succeed", () =>
+  it.effect("reports CLI ready after version and models succeed without daemon", () =>
     Effect.gen(function* () {
       const binaryPath = yield* Effect.promise(() =>
         makeFakeAgy(`#!/usr/bin/env bash
@@ -149,11 +163,11 @@ exit 2
       const snapshot = yield* checkAntigravityProviderStatus(
         decodeAntigravitySettings({
           binaryPath,
-          languageServerAddress: "http://127.0.0.1:39999",
         }),
       ).pipe(Effect.provide(NodeServices.layer));
-      expect(snapshot.status).toBe("warning");
+      expect(snapshot.status).toBe("ready");
       expect(snapshot.installed).toBe(true);
+      expect(snapshot.auth.label).toBe("Antigravity CLI");
       expect(snapshot.models.map((model) => model.slug)).toContain("Gemini 3.5 Flash (Medium)");
     }),
   );
