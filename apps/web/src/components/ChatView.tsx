@@ -231,6 +231,7 @@ import {
   reconcileMountedTerminalThreadIds,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
+  shouldClearOptimisticUserMessages,
   revokeUserMessagePreviewUrls,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -1112,6 +1113,7 @@ function ChatViewContent(props: ChatViewProps) {
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
   optimisticUserMessagesRef.current = optimisticUserMessages;
+  const optimisticMessagesThreadIdRef = useRef<ThreadId | null>(threadId);
   const [localDraftErrorsByDraftId, setLocalDraftErrorsByDraftId] = useState<
     Record<string, string | null>
   >({});
@@ -3558,12 +3560,24 @@ function ChatViewContent(props: ChatViewProps) {
   }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
 
   useEffect(() => {
-    setOptimisticUserMessages((existing) => {
-      for (const message of existing) {
-        revokeUserMessagePreviewUrls(message);
-      }
-      return [];
-    });
+    // Draft-to-server promotion flips draftId to null while threadId stays the
+    // same, often before the server snapshot carries the first user message —
+    // keep the optimistic row for that transition. The effect above removes it
+    // once the matching server message arrives.
+    if (
+      shouldClearOptimisticUserMessages({
+        previousThreadId: optimisticMessagesThreadIdRef.current,
+        nextThreadId: threadId,
+      })
+    ) {
+      setOptimisticUserMessages((existing) => {
+        for (const message of existing) {
+          revokeUserMessagePreviewUrls(message);
+        }
+        return [];
+      });
+    }
+    optimisticMessagesThreadIdRef.current = threadId;
     resetLocalDispatch();
     setExpandedImage(null);
   }, [draftId, resetLocalDispatch, threadId]);
