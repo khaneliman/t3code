@@ -17,8 +17,9 @@ T3 Code uses the hidden agent API through:
 agy agentapi ...
 ```
 
-The agent API also needs an active Antigravity daemon/language server. Open Antigravity before
-starting a T3 Code session, or configure the language server details manually.
+`agentapi` needs an active Antigravity language server. T3 Code can still run CLI-only with
+`agy --print` when no language server is available. In CLI-only mode, T3 Code cannot drive the
+daemon-only approval APIs. No desktop app is required for CLI-only mode.
 
 ## Settings
 
@@ -30,9 +31,9 @@ Brain path     ~/.gemini/antigravity-cli/brain
 Settings path  ~/.gemini/antigravity-cli/settings.json
 ```
 
-Linux supports auto-detecting the active language server from `/proc`.
+Linux supports auto-detecting an active language server from `/proc` when one exists.
 
-macOS and Windows may need:
+macOS and Windows may need these only for daemon-backed approval APIs:
 
 ```text
 Language server address  http://127.0.0.1:<port>

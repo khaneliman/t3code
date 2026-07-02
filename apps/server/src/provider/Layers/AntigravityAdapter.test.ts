@@ -86,6 +86,7 @@ function makeAdapter(
   ) => Promise<string>,
 ) {
   const settings = decodeAntigravitySettings({
+    homePath: baseDir,
     brainPath: NodePath.join(baseDir, "brain"),
     settingsPath: NodePath.join(baseDir, "settings.json"),
     ...settingsPatch,
@@ -260,16 +261,22 @@ describe("AntigravityAdapter transcript helpers", () => {
 });
 
 describe("AntigravityAdapter sessions", () => {
-  it.effect("uses new-conversation first, stores resume cursor, then uses send-message", () =>
+  it.effect("uses agy --print first, stores cache cursor, then resumes with --conversation", () =>
     Effect.gen(function* () {
       const baseDir = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "antig-adapter-send-")),
       );
       try {
         const calls: ReadonlyArray<string>[] = [];
-        const adapter = yield* makeAdapter(baseDir, {}, async (_binaryPath, args) => {
+        const adapter = yield* makeAdapter(baseDir, {}, async (_binaryPath, args, options) => {
           calls.push([...args]);
-          return JSON.stringify({ response: { newConversation: { conversationId: "conv-1" } } });
+          await NodeFSP.mkdir(NodePath.join(baseDir, "cache"), { recursive: true });
+          await NodeFSP.writeFile(
+            NodePath.join(baseDir, "cache", "last_conversations.json"),
+            `${JSON.stringify({ [options.cwd]: "conv-1" })}\n`,
+            "utf8",
+          );
+          return args.includes("--conversation") ? "next response" : "first response";
         });
         const threadId = ThreadId.make("thread-send");
         yield* adapter.startSession({ threadId, runtimeMode: "full-access", cwd: baseDir });
@@ -277,13 +284,49 @@ describe("AntigravityAdapter sessions", () => {
         yield* adapter.sendTurn({ threadId, input: "next", attachments: [] });
 
         expect(first.resumeCursor).toEqual({ conversationId: "conv-1" });
-        expect(calls[0]?.slice(0, 2)).toEqual(["agentapi", "new-conversation"]);
-        expect(calls[1]?.slice(0, 3)).toEqual(["agentapi", "send-message", "conv-1"]);
+        expect(calls[0]).toContain("--print");
+        expect(calls[0]).toContain("--dangerously-skip-permissions");
+        expect(calls[0]).not.toContain("--conversation");
+        expect(calls[1]).toEqual(expect.arrayContaining(["--conversation", "conv-1", "--print"]));
         yield* adapter.stopSession(threadId);
       } finally {
         yield* Effect.promise(() => NodeFSP.rm(baseDir, { recursive: true, force: true }));
       }
     }),
+  );
+
+  it.effect(
+    "uses agentapi new-conversation and send-message when daemon endpoint is configured",
+    () =>
+      Effect.gen(function* () {
+        const baseDir = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "antig-adapter-agentapi-")),
+        );
+        try {
+          const calls: ReadonlyArray<string>[] = [];
+          const adapter = yield* makeAdapter(
+            baseDir,
+            { languageServerAddress: "http://127.0.0.1:39999" },
+            async (_binaryPath, args) => {
+              calls.push([...args]);
+              return JSON.stringify({
+                response: { newConversation: { conversationId: "conv-agentapi" } },
+              });
+            },
+          );
+          const threadId = ThreadId.make("thread-agentapi");
+          yield* adapter.startSession({ threadId, runtimeMode: "full-access", cwd: baseDir });
+          const first = yield* adapter.sendTurn({ threadId, input: "hello", attachments: [] });
+          yield* adapter.sendTurn({ threadId, input: "next", attachments: [] });
+
+          expect(first.resumeCursor).toEqual({ conversationId: "conv-agentapi" });
+          expect(calls[0]?.slice(0, 2)).toEqual(["agentapi", "new-conversation"]);
+          expect(calls[1]?.slice(0, 3)).toEqual(["agentapi", "send-message", "conv-agentapi"]);
+          yield* adapter.stopSession(threadId);
+        } finally {
+          yield* Effect.promise(() => NodeFSP.rm(baseDir, { recursive: true, force: true }));
+        }
+      }),
   );
 
   it.effect("starts transcript poller from resume cursor and buffers partial lines", () =>
