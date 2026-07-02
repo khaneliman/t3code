@@ -66,6 +66,17 @@ const ANTIGRAVITY_MODEL_ALIASES: Readonly<Record<string, string>> = {
   high: "Gemini 3.1 Pro (High)",
 };
 
+const ANTIGRAVITY_CLI_MODEL_ALIASES: Readonly<Record<string, string>> = {
+  "Gemini 3.5 Flash (Low)": "flash_lite",
+  "Gemini 3.5 Flash (Medium)": "flash",
+  "Gemini 3.5 Flash (High)": "flash",
+  "Gemini 3.1 Pro (Low)": "pro",
+  "Gemini 3.1 Pro (High)": "pro",
+  flash_lite: "flash_lite",
+  flash: "flash",
+  pro: "pro",
+};
+
 const REASONING_EFFORT_LABELS: Readonly<Record<string, string>> = {
   low: "Low",
   medium: "Medium",
@@ -251,6 +262,17 @@ export function resolveAntigravityModelLabel(
       ? { baseName: parsed.baseName, reasoningEffort }
       : { baseName: parsed.baseName },
   );
+}
+
+export function resolveAntigravityCliModelAlias(
+  modelSelection: ModelSelection | null | undefined,
+): string | undefined {
+  const label = resolveAntigravityModelLabel(modelSelection);
+  if (label && ANTIGRAVITY_CLI_MODEL_ALIASES[label]) {
+    return ANTIGRAVITY_CLI_MODEL_ALIASES[label];
+  }
+  const rawModel = modelSelection?.model?.trim();
+  return rawModel ? ANTIGRAVITY_CLI_MODEL_ALIASES[rawModel] : undefined;
 }
 
 export function resolveAntigravityBinaryPath(settings: AntigravitySettings): string {
@@ -581,7 +603,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
           installed: false,
           version: null,
           status: "warning",
-          auth: { status: "unknown", label: "Antigravity daemon" },
+          auth: { status: "unknown", label: "Antigravity CLI" },
           message: "Antigravity is disabled in T3 Code settings.",
         },
       });
@@ -604,7 +626,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
           installed: !isCommandMissingCause(error),
           version: null,
           status: "error",
-          auth: { status: "unknown", label: "Antigravity daemon" },
+          auth: { status: "unknown", label: "Antigravity CLI" },
           message: isCommandMissingCause(error)
             ? "Antigravity CLI (`agy`) is not installed or not on PATH."
             : "Failed to execute Antigravity CLI health check.",
@@ -623,7 +645,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
           installed: true,
           version: null,
           status: "error",
-          auth: { status: "unknown", label: "Antigravity daemon" },
+          auth: { status: "unknown", label: "Antigravity CLI" },
           message: "Antigravity CLI timed out while running `agy --version`.",
         },
       });
@@ -642,7 +664,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
           installed: true,
           version,
           status: "error",
-          auth: { status: "unknown", label: "Antigravity daemon" },
+          auth: { status: "unknown", label: "Antigravity CLI" },
           message: "Antigravity CLI is installed but failed to run.",
         },
       });
@@ -673,24 +695,6 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
       Option.isSome(daemonResult.success) &&
       daemonProbeReached(daemonResult.success.value);
 
-    if (!daemonReachable) {
-      return buildServerProvider({
-        driver: PROVIDER,
-        presentation: ANTIGRAVITY_PRESENTATION,
-        enabled: true,
-        checkedAt,
-        models,
-        probe: {
-          installed: true,
-          version,
-          status: "warning",
-          auth: { status: "unknown", label: "Antigravity daemon" },
-          message:
-            "Antigravity CLI is installed. Open Antigravity or set language server address and CSRF token.",
-        },
-      });
-    }
-
     return buildServerProvider({
       driver: PROVIDER,
       presentation: ANTIGRAVITY_PRESENTATION,
@@ -701,7 +705,15 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
         installed: true,
         version,
         status: "ready",
-        auth: { status: "authenticated", label: "Antigravity daemon" },
+        auth: {
+          status: "authenticated",
+          label: daemonReachable ? "Antigravity agentapi" : "Antigravity CLI",
+        },
+        ...(daemonReachable
+          ? {}
+          : {
+              message: "Antigravity CLI mode is ready. Daemon-only approval APIs are unavailable.",
+            }),
       },
     });
   },
@@ -720,7 +732,7 @@ export const makePendingAntigravityProvider = Effect.fn("makePendingAntigravityP
         installed: false,
         version: null,
         status: "warning",
-        auth: { status: "unknown", label: "Antigravity daemon" },
+        auth: { status: "unknown", label: "Antigravity CLI" },
         message: settings.enabled
           ? "Antigravity provider status has not been checked in this session yet."
           : "Antigravity is disabled in T3 Code settings.",
