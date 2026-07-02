@@ -735,7 +735,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
         <span className="min-w-0 flex-1">
           <span className="block truncate">{option.label}</span>
           {renderDetail ? (
-            <span className="block truncate text-[11px] text-muted-foreground">
+            <span className="block truncate text-[0.6875rem] text-muted-foreground">
               {option.detail}
             </span>
           ) : null}
@@ -747,7 +747,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
       <span className="min-w-0 flex-1">
         <span className="block truncate">Copy code</span>
         {renderDetail ? (
-          <span className="block truncate text-[11px] text-muted-foreground">Token only</span>
+          <span className="block truncate text-[0.6875rem] text-muted-foreground">Token only</span>
         ) : null}
       </span>
     </MenuItem>
@@ -845,7 +845,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
             <AccessScopeSummary scopes={pairingLink.scopes} label="Pairing link scopes" />
           </p>
           {shareablePairingUrl === null ? (
-            <p className="text-[11px] text-muted-foreground/70">
+            <p className="text-[0.6875rem] text-muted-foreground/70">
               Copy the token and pair from another client using this backend&apos;s reachable host.
             </p>
           ) : null}
@@ -1008,7 +1008,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
             />
             <h3 className="text-sm font-medium text-foreground">{primaryLabel}</h3>
             {clientSession.current ? (
-              <span className="text-[10px] text-muted-foreground/80 rounded-md border border-border/50 bg-muted/50 px-1 py-0.5">
+              <span className="text-[0.625rem] text-muted-foreground/80 rounded-md border border-border/50 bg-muted/50 px-1 py-0.5">
                 This device
               </span>
             ) : null}
@@ -1319,14 +1319,14 @@ const AdvertisedEndpointListRow = memo(function AdvertisedEndpointListRow({
             </p>
           ) : null}
           {!isAvailable ? (
-            <span className="shrink-0 rounded-md border border-border/70 px-1 py-0.5 text-[10px] text-muted-foreground">
+            <span className="shrink-0 rounded-md border border-border/70 px-1 py-0.5 text-[0.625rem] text-muted-foreground">
               Setup required
             </span>
           ) : null}
         </div>
         <div className="ml-auto flex min-h-6 shrink-0 items-center justify-end gap-2">
           {isDefault ? (
-            <span className="rounded-md border border-primary/30 bg-primary/10 px-1 py-0.5 text-[10px] text-primary">
+            <span className="rounded-md border border-primary/30 bg-primary/10 px-1 py-0.5 text-[0.625rem] text-primary">
               Default
             </span>
           ) : null}
@@ -2712,7 +2712,7 @@ export function ConnectionsSettings() {
         </label>
       </div>
       <div>
-        <span className="mt-1 block text-[11px] text-muted-foreground">
+        <span className="mt-1 block text-[0.6875rem] text-muted-foreground">
           Paste a full pairing URL here to fill both fields automatically.
         </span>
       </div>
@@ -2790,7 +2790,9 @@ export function ConnectionsSettings() {
         <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/30 px-3 py-2">
           <div className="min-w-0">
             <p className="text-xs font-medium text-foreground">Suggested hosts</p>
-            <p className="text-[11px] text-muted-foreground">From SSH config and known hosts</p>
+            <p className="text-[0.6875rem] text-muted-foreground">
+              From SSH config and known hosts
+            </p>
           </div>
           <Button
             size="xs"
@@ -3626,7 +3628,7 @@ export function ConnectionsSettings() {
                       <Button
                         size="xs"
                         variant="ghost"
-                        className="h-5 gap-1 rounded-sm px-1 text-[11px] font-normal text-muted-foreground/60 hover:text-muted-foreground"
+                        className="h-5 gap-1 rounded-sm px-1 text-[0.6875rem] font-normal text-muted-foreground/60 hover:text-muted-foreground"
                         aria-label="Add environment"
                       >
                         <PlusIcon className="size-3" />

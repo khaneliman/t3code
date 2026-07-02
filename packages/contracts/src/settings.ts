@@ -39,6 +39,18 @@ export const SidebarThreadPreviewCount = Schema.Int.check(
 export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
 export const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
 
+export const MIN_TEXT_SCALE = 80;
+export const MAX_TEXT_SCALE = 200;
+export const TEXT_SCALE_OPTIONS = [80, 90, 100, 110, 120, 130, 140, 150, 175, 200] as const;
+export const TextScale = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_TEXT_SCALE,
+    maximum: MAX_TEXT_SCALE,
+  }),
+);
+export type TextScale = typeof TextScale.Type;
+export const DEFAULT_TEXT_SCALE: TextScale = 100;
+
 export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -92,6 +104,7 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
   ),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  textScale: TextScale.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_TEXT_SCALE))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -668,5 +681,6 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   wordWrap: Schema.optionalKey(Schema.Boolean),
+  textScale: Schema.optionalKey(TextScale),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

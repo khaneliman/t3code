@@ -210,7 +210,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
                         : "color-mix(in oklab, var(--muted) 30%, transparent)"
                   }
                   {...(entry.accentColor
-                    ? { badgeClassName: "h-3 min-w-3 px-0.5 text-[7px]" }
+                    ? { badgeClassName: "h-3 min-w-3 px-0.5 text-[0.4375rem]" }
                     : {})}
                 />
                 {showNewBadge ? (

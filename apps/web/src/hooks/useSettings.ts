@@ -29,6 +29,7 @@ import * as Struct from "effect/Struct";
 import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
 import { usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { applyDocumentTextScale, writeTextScaleMirror } from "~/textScale";
 
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
 
@@ -57,6 +58,8 @@ function getClientSettingsSnapshot(): ClientSettings {
 
 function replaceClientSettingsSnapshot(settings: ClientSettings): void {
   clientSettingsSnapshot = settings;
+  applyDocumentTextScale(settings.textScale);
+  writeTextScaleMirror(settings.textScale);
   emitClientSettingsChange();
 }
 
@@ -161,6 +164,10 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
     serverPatch: serverPatch as ServerSettingsPatch,
     clientPatch: clientPatch as ClientSettingsPatch,
   };
+}
+
+export function __splitSettingsPatchForTests(patch: Partial<UnifiedSettings>) {
+  return splitPatch(patch);
 }
 
 // ── Hooks ────────────────────────────────────────────────────────────
@@ -291,6 +298,7 @@ export function useUpdateClientSettings() {
 export function __resetClientSettingsPersistenceForTests(): void {
   clientSettingsHydrationGeneration += 1;
   clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
+  applyDocumentTextScale(DEFAULT_CLIENT_SETTINGS.textScale);
   clientSettingsHydrated = false;
   clientSettingsHydrationPromise = null;
   clientSettingsListeners.clear();
@@ -300,6 +308,7 @@ export function __resetClientSettingsPersistenceForTests(): void {
 export function __setClientSettingsForTests(settings: ClientSettings): void {
   clientSettingsHydrationGeneration += 1;
   clientSettingsSnapshot = settings;
+  applyDocumentTextScale(settings.textScale);
   clientSettingsHydrated = true;
   clientSettingsHydrationPromise = null;
 }

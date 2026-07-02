@@ -6,7 +6,7 @@ import {
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { describe, expect, it } from "vite-plus/test";
 
-import { mergeEnvironmentSettings } from "./useSettings";
+import { __splitSettingsPatchForTests, mergeEnvironmentSettings } from "./useSettings";
 
 describe("mergeEnvironmentSettings", () => {
   it("combines the selected environment's server settings with client preferences", () => {
@@ -27,11 +27,23 @@ describe("mergeEnvironmentSettings", () => {
           model: "gpt-5.4",
         },
       ],
+      textScale: 150 as const,
     };
 
     const settings = mergeEnvironmentSettings(serverSettings, clientSettings);
 
     expect(settings.providerInstances).toBe(serverSettings.providerInstances);
     expect(settings.favorites).toBe(clientSettings.favorites);
+    expect(settings.textScale).toBe(150);
+  });
+
+  it("routes text scale updates to client settings", () => {
+    const { serverPatch, clientPatch } = __splitSettingsPatchForTests({
+      addProjectBaseDirectory: "/tmp",
+      textScale: 125,
+    });
+
+    expect(serverPatch).toEqual({ addProjectBaseDirectory: "/tmp" });
+    expect(clientPatch).toEqual({ textScale: 125 });
   });
 });

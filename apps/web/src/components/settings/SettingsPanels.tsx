@@ -18,7 +18,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_UNIFIED_SETTINGS, TEXT_SCALE_OPTIONS } from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
@@ -88,6 +88,7 @@ import {
 } from "./settingsLayout";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { parseTextScale } from "../../textScale";
 
 const THEME_OPTIONS = [
   {
@@ -141,7 +142,7 @@ function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }
   }
 
   return (
-    <span className="text-[11px] text-muted-foreground/60">
+    <span className="text-[0.6875rem] text-muted-foreground/60">
       {lastCheckedRelative.suffix ? (
         <>
           Checked <span className="font-mono tabular-nums">{lastCheckedRelative.value}</span>{" "}
@@ -158,7 +159,7 @@ function AboutVersionTitle() {
   return (
     <span className="inline-flex items-center gap-2">
       <span>Version</span>
-      <code className="text-[11px] font-medium text-muted-foreground">{APP_VERSION}</code>
+      <code className="text-[0.6875rem] font-medium text-muted-foreground">{APP_VERSION}</code>
     </span>
   );
 }
@@ -353,7 +354,7 @@ function AboutVersionSection() {
                 );
               }}
             >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Update track">
+              <SelectTrigger className="w-full min-w-0 sm:w-40" aria-label="Update track">
                 <SelectValue>{HOSTED_APP_CHANNEL_LABEL}</SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -533,7 +534,7 @@ export function GeneralSettingsPanel() {
                 }
               }}
             >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Theme preference">
+              <SelectTrigger className="w-full min-w-0 sm:w-40" aria-label="Theme preference">
                 <SelectValue>
                   {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
                 </SelectValue>
@@ -573,7 +574,7 @@ export function GeneralSettingsPanel() {
                 }
               }}
             >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Timestamp format">
+              <SelectTrigger className="w-full min-w-0 sm:w-40" aria-label="Timestamp format">
                 <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -612,6 +613,45 @@ export function GeneralSettingsPanel() {
               onCheckedChange={(checked) => updateSettings({ wordWrap: Boolean(checked) })}
               aria-label="Wrap code, tables, diffs, and file previews by default"
             />
+          }
+        />
+
+        <SettingsRow
+          title="Text scaling"
+          description="Scale text and UI components across the application."
+          resetAction={
+            settings.textScale !== DEFAULT_UNIFIED_SETTINGS.textScale ? (
+              <SettingResetButton
+                label="text scaling"
+                onClick={() =>
+                  updateSettings({
+                    textScale: DEFAULT_UNIFIED_SETTINGS.textScale,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={String(settings.textScale)}
+              onValueChange={(value) => {
+                const textScale = parseTextScale(value);
+                if (textScale !== null) {
+                  updateSettings({ textScale });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full min-w-0 sm:w-40" aria-label="Text scaling">
+                <SelectValue>{settings.textScale}%</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {TEXT_SCALE_OPTIONS.map((scale) => (
+                  <SelectItem hideIndicator key={scale} value={String(scale)}>
+                    {scale}%
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
 
@@ -749,7 +789,7 @@ export function GeneralSettingsPanel() {
                 }
               }}
             >
-              <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
+              <SelectTrigger className="w-full min-w-0 sm:w-44" aria-label="Default thread mode">
                 <SelectValue>
                   {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
                 </SelectValue>

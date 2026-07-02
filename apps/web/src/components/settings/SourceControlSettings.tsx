@@ -194,7 +194,8 @@ function itemSummary({
       return (
         <span>
           {item.label} is not authenticated on this server. Sign in or configure credentials using
-          the <code className="rounded bg-muted px-1 py-px text-[11px]">{item.executable}</code>{" "}
+          the{" "}
+          <code className="rounded bg-muted px-1 py-px text-[0.6875rem]">{item.executable}</code>{" "}
           tool on the server host to enable pull request features.
         </span>
       );
@@ -238,7 +239,7 @@ function DiscoveryItemRow({
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <SourceControlItemMark item={item} />
-              <span className="truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+              <span className="truncate text-[0.8125rem] font-semibold tracking-[-0.01em] text-foreground">
                 {item.label}
               </span>
               {version ? <code className="text-xs text-muted-foreground">{version}</code> : null}

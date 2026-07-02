@@ -82,8 +82,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     isActive={isActive}
                     className={
                       isActive
-                        ? "gap-2.5 px-2.5 py-2 text-left text-[13px] font-medium text-foreground"
-                        : "gap-2.5 px-2.5 py-2 text-left text-[13px] text-muted-foreground/70 hover:text-foreground/80"
+                        ? "gap-2.5 px-2.5 py-2 text-left text-[0.8125rem] font-medium text-foreground"
+                        : "gap-2.5 px-2.5 py-2 text-left text-[0.8125rem] text-muted-foreground/70 hover:text-foreground/80"
                     }
                     onClick={() => handleSectionClick(item.to)}
                   >

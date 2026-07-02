@@ -133,7 +133,7 @@ function CommandPaletteResultRow(props: {
       )}
       {props.item.titleTrailingContent}
       {props.item.timestamp ? (
-        <span className="min-w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground/70">
+        <span className="min-w-12 shrink-0 text-right text-[0.625rem] tabular-nums text-muted-foreground/70">
           {props.item.timestamp}
         </span>
       ) : null}

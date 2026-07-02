@@ -1,11 +1,21 @@
-import { ClientSettingsSchema } from "@t3tools/contracts";
+import { ClientSettingsSchema, TextScale } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
+
+export const getInitialTextScale = DesktopIpc.makeSyncIpcMethod({
+  channel: IpcChannels.GET_INITIAL_TEXT_SCALE_CHANNEL,
+  result: Schema.NullOr(TextScale),
+  handler: Effect.fn("desktop.ipc.clientSettings.getInitialTextScale")(function* () {
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    return DesktopClientSettings.readInitialTextScaleFileSync(environment.clientSettingsPath);
+  }),
+});
 
 export const getClientSettings = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.GET_CLIENT_SETTINGS_CHANNEL,
