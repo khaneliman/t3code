@@ -455,6 +455,19 @@ export function mapAntigravityTranscriptRecordToRuntimeEvents(input: {
     return events;
   }
 
+  if (itemType === "plan" && (status === "DONE" || completesTurn)) {
+    const planText = sanitizeAntigravityAssistantText(content);
+    if (planText) {
+      events.push({
+        ...runtimeEventBase({ threadId, instanceId, turnId, createdAt, method, payload: record }),
+        type: "turn.proposed.completed",
+        payload: {
+          planMarkdown: planText,
+        },
+      });
+    }
+  }
+
   const assistantText = sanitizeAntigravityAssistantText(content);
   if (assistantText) {
     events.push({
@@ -689,6 +702,37 @@ function sendCascadeGateDecision(input: {
       },
     },
   });
+}
+
+async function scanForNewPlanFile(cwd: string, turnStartTime: number): Promise<string | undefined> {
+  const plansDir = NodePath.join(cwd, ".plans");
+  try {
+    const stats = await NodeFSP.stat(plansDir);
+    if (!stats.isDirectory()) return undefined;
+    const files = await NodeFSP.readdir(plansDir);
+    let newestFile: { name: string; mtime: number } | undefined;
+    for (const file of files) {
+      if (!file.endsWith(".md")) continue;
+      const filePath = NodePath.join(plansDir, file);
+      try {
+        const fileStat = await NodeFSP.stat(filePath);
+        if (fileStat.mtimeMs >= turnStartTime - 2000) {
+          if (!newestFile || fileStat.mtimeMs > newestFile.mtime) {
+            newestFile = { name: file, mtime: fileStat.mtimeMs };
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (newestFile) {
+      const filePath = NodePath.join(plansDir, newestFile.name);
+      return await NodeFSP.readFile(filePath, "utf8");
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
 }
 
 function parseResumeCursor(raw: unknown): { readonly conversationId: string } | undefined {
@@ -1098,6 +1142,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
         });
       }
 
+      const turnStartTime = Date.now();
       const cwd = context.session.cwd ?? serverConfig.cwd;
       const modelLabel = resolveAntigravityModelLabel(input.modelSelection);
       const modelAlias = resolveAntigravityCliModelAlias(input.modelSelection);
@@ -1149,10 +1194,23 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
         .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
         .map((entry) => `\nAttachment: ${entry}`)
         .join("");
-      const fullPrompt = [
+      let fullPrompt = [
         `<T3_WORKSPACE_CONTEXT>\nCurrent working directory: ${cwd}\nWhen the user refers to "this folder", "here", or the current folder, use this directory.\n</T3_WORKSPACE_CONTEXT>`,
         `${prompt}${attachmentText}`,
       ].join("\n\n");
+
+      if (input.interactionMode === "plan") {
+        fullPrompt += [
+          "",
+          "---",
+          "SYSTEM INSTRUCTION FOR PLAN MODE:",
+          "You are running in Plan Mode. Do NOT perform any code modifications or execute commands that alter state.",
+          "Instead, analyze the codebase and design your proposed changes.",
+          "Write your proposed plan to a markdown file inside the `.plans/` directory (e.g. `.plans/new-feature-plan.md`).",
+          "Ensure your response explains the plan and lists the created plan file path.",
+        ].join("\n");
+      }
+
       const turnId = TurnId.make(`antigravity-turn-${yield* randomUUIDv4}`);
       const updatedAt = yield* currentTimestamp;
 
@@ -1178,19 +1236,12 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
         payload: modelLabel ? { model: modelLabel } : {},
       });
 
-      let cliTranscriptStartOffset = 0;
-      if (!endpoint) {
-        if (context.poller) {
-          NodeTimers.clearInterval(context.poller);
-          context.poller = undefined;
-        }
-        if (context.conversationId) {
-          cliTranscriptStartOffset = yield* Effect.promise(() =>
-            transcriptSizeForConversation({ settings, conversationId: context.conversationId! }),
-          );
-          context.pollOffset = cliTranscriptStartOffset;
-          context.pollCarry = "";
-        }
+      if (context.conversationId) {
+        const cliTranscriptStartOffset = yield* Effect.promise(() =>
+          transcriptSizeForConversation({ settings, conversationId: context.conversationId! }),
+        );
+        context.pollOffset = cliTranscriptStartOffset;
+        context.pollCarry = "";
       }
 
       const args = endpoint
@@ -1209,29 +1260,33 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
             fullAccess: context.session.runtimeMode === "full-access",
           });
       const commandMethod = endpoint ? (args[1] ?? "agentapi") : "agy.print";
-      const stdout = yield* Effect.tryPromise({
-        try: () =>
-          options.runAgentApi
-            ? options.runAgentApi(binaryPath, args, { cwd, env })
-            : endpoint
-              ? runAgentApiDefault(binaryPath, args, { cwd, env }, (child) => {
-                  context.agentApiCancel = () => {
-                    if (child.exitCode !== null || child.killed) return;
-                    child.kill("SIGTERM");
-                    NodeTimers.setTimeout(() => {
-                      if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
-                    }, 2_000).unref?.();
-                  };
-                })
-              : runAgyPrintDefault(binaryPath, args, { cwd, env }, (child) => {
-                  context.agentApiCancel = () => {
-                    if (child.exitCode !== null || child.killed) return;
-                    child.kill("SIGTERM");
-                    NodeTimers.setTimeout(() => {
-                      if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
-                    }, 2_000).unref?.();
-                  };
-                }),
+      const previousConversationId = context.conversationId;
+
+      const runAgyPromise = () =>
+        options.runAgentApi
+          ? options.runAgentApi(binaryPath, args, { cwd, env })
+          : endpoint
+            ? runAgentApiDefault(binaryPath, args, { cwd, env }, (child) => {
+                context.agentApiCancel = () => {
+                  if (child.exitCode !== null || child.killed) return;
+                  child.kill("SIGTERM");
+                  NodeTimers.setTimeout(() => {
+                    if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
+                  }, 2_000).unref?.();
+                };
+              })
+            : runAgyPrintDefault(binaryPath, args, { cwd, env }, (child) => {
+                context.agentApiCancel = () => {
+                  if (child.exitCode !== null || child.killed) return;
+                  child.kill("SIGTERM");
+                  NodeTimers.setTimeout(() => {
+                    if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
+                  }, 2_000).unref?.();
+                };
+              });
+
+      const runProcessEffect = Effect.tryPromise({
+        try: () => runAgyPromise(),
         catch: (cause) => {
           const detail = cause instanceof Error ? cause.message : String(cause);
           return new ProviderAdapterRequestError({
@@ -1242,12 +1297,131 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
           });
         },
       }).pipe(
-        Effect.catch((error: ProviderAdapterRequestError) =>
+        Effect.flatMap((stdout) =>
+          Effect.gen(function* () {
+            context.agentApiCancel = undefined;
+            if (stdout === INTERRUPTED_AGENTAPI_RESULT) {
+              return;
+            }
+
+            if (!context.conversationId) {
+              if (endpoint) {
+                try {
+                  const parsedJson = JSON.parse(stdout) as unknown;
+                  const decoded = decodeNewConversationResponse(parsedJson);
+                  context.conversationId = decoded.response.newConversation.conversationId;
+                  const cursor = { conversationId: context.conversationId };
+                  const resumedAt = yield* currentTimestamp;
+                  context.session = {
+                    ...context.session,
+                    resumeCursor: cursor,
+                    updatedAt: resumedAt,
+                  };
+                  emit({
+                    ...runtimeEventBase({
+                      threadId: input.threadId,
+                      ...(options.instanceId ? { instanceId: options.instanceId } : {}),
+                      createdAt: resumedAt,
+                      method: "thread.start",
+                      rawSource,
+                      payload: cursor,
+                    }),
+                    type: "thread.started",
+                    payload: { providerThreadId: context.conversationId },
+                  });
+                  startTranscriptPoller(context);
+                  startGatePoller(context);
+                } catch {
+                  const discovered = yield* Effect.promise(() =>
+                    readLastConversationIdForCwd({ settings, cwd }),
+                  );
+                  if (discovered) {
+                    context.conversationId = discovered;
+                    startTranscriptPoller(context);
+                  }
+                }
+              } else {
+                const discovered = yield* Effect.promise(() =>
+                  readLastConversationIdForCwd({ settings, cwd }),
+                );
+                if (discovered) {
+                  context.conversationId = discovered;
+                  startTranscriptPoller(context);
+                }
+              }
+            }
+
+            const transcriptResult = context.conversationId
+              ? yield* Effect.promise(() => pollTranscriptOnce(context))
+              : { emittedContent: false, completedTurn: false };
+
+            const planContent = yield* Effect.promise(() => scanForNewPlanFile(cwd, turnStartTime));
+            if (planContent) {
+              emit({
+                ...runtimeEventBase({
+                  threadId: input.threadId,
+                  ...(options.instanceId ? { instanceId: options.instanceId } : {}),
+                  turnId,
+                  createdAt: yield* currentTimestamp,
+                  method: "antigravity/plan-discovered",
+                  rawSource,
+                }),
+                type: "turn.proposed.completed",
+                payload: {
+                  planMarkdown: planContent,
+                },
+              });
+            }
+
+            const output = stdout.trim();
+            if (output && !transcriptResult.emittedContent) {
+              appendTurnItem(context, turnId, { source: "cli", content: output });
+              emit({
+                ...runtimeEventBase({
+                  threadId: input.threadId,
+                  ...(options.instanceId ? { instanceId: options.instanceId } : {}),
+                  turnId,
+                  createdAt: yield* currentTimestamp,
+                  method: "agy.print",
+                  rawSource,
+                  payload: { stdoutBytes: Buffer.byteLength(stdout, "utf8") },
+                }),
+                type: "content.delta",
+                payload: { streamKind: "assistant_text", delta: output },
+              });
+            }
+
+            if (!transcriptResult.completedTurn && context.activeTurnId === turnId) {
+              const completedAt = yield* currentTimestamp;
+              emit({
+                ...runtimeEventBase({
+                  threadId: input.threadId,
+                  ...(options.instanceId ? { instanceId: options.instanceId } : {}),
+                  turnId,
+                  createdAt: completedAt,
+                  method: "agy.print",
+                  rawSource,
+                  payload: { exit: 0 },
+                }),
+                type: "turn.completed",
+                payload: { state: "completed" },
+              });
+              context.activeTurnId = undefined;
+              context.session = {
+                ...context.session,
+                status: "ready",
+                activeTurnId: undefined,
+                updatedAt: completedAt,
+              };
+            }
+          }),
+        ),
+        Effect.catch((error) =>
           Effect.gen(function* () {
             const wasInterrupted = context.activeTurnId !== turnId;
             if (wasInterrupted) {
               context.agentApiCancel = undefined;
-              return INTERRUPTED_AGENTAPI_RESULT;
+              return;
             }
             const message = agentApiFailureMessage(error);
             const failedAt = yield* currentTimestamp;
@@ -1286,34 +1460,34 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
               lastError: message,
               updatedAt: failedAt,
             };
-            return yield* Effect.fail(error);
           }),
         ),
       );
-      context.agentApiCancel = undefined;
-      if (stdout === INTERRUPTED_AGENTAPI_RESULT) {
-        return {
-          threadId: input.threadId,
-          turnId,
-          ...(context.conversationId
-            ? { resumeCursor: { conversationId: context.conversationId } }
-            : {}),
-        } satisfies ProviderTurnStartResult;
-      }
 
-      if (!endpoint) {
-        if (!context.conversationId) {
-          const discoveredConversationId = yield* Effect.promise(() =>
-            readLastConversationIdForCwd({ settings, cwd }),
-          );
-          if (discoveredConversationId) {
-            context.conversationId = discoveredConversationId;
-            context.pollOffset = 0;
-            context.pollCarry = "";
-            const cursor = { conversationId: discoveredConversationId };
-            const resumedAt = yield* currentTimestamp;
-            context.session = {
-              ...context.session,
+      yield* runProcessEffect.pipe(Effect.forkDetach);
+
+      const startConversationIdPoller = (ctx: SessionContext) => {
+        let attempts = 0;
+        const interval = NodeTimers.setInterval(async () => {
+          if (ctx.conversationId || ctx.stopped) {
+            NodeTimers.clearInterval(interval);
+            return;
+          }
+          attempts++;
+          if (attempts > 30) {
+            NodeTimers.clearInterval(interval);
+            return;
+          }
+          const discovered = await readLastConversationIdForCwd({ settings, cwd });
+          if (discovered && discovered !== previousConversationId) {
+            NodeTimers.clearInterval(interval);
+            ctx.conversationId = discovered;
+            ctx.pollOffset = 0;
+            ctx.pollCarry = "";
+            const cursor = { conversationId: discovered };
+            const resumedAt = new Date().toISOString();
+            ctx.session = {
+              ...ctx.session,
               resumeCursor: cursor,
               updatedAt: resumedAt,
             };
@@ -1327,116 +1501,28 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                 payload: cursor,
               }),
               type: "thread.started",
-              payload: { providerThreadId: discoveredConversationId },
+              payload: { providerThreadId: discovered },
             });
+            startTranscriptPoller(ctx);
+            if (endpoint) {
+              startGatePoller(ctx);
+            }
           }
-        }
-
-        const transcriptResult = context.conversationId
-          ? yield* Effect.promise(() => pollTranscriptOnce(context))
-          : { emittedContent: false, completedTurn: false };
-        const output = stdout.trim();
-        if (output && !transcriptResult.emittedContent) {
-          appendTurnItem(context, turnId, { source: "cli", content: output });
-          emit({
-            ...runtimeEventBase({
-              threadId: input.threadId,
-              ...(options.instanceId ? { instanceId: options.instanceId } : {}),
-              turnId,
-              createdAt: yield* currentTimestamp,
-              method: "agy.print",
-              rawSource,
-              payload: { stdoutBytes: Buffer.byteLength(stdout, "utf8") },
-            }),
-            type: "content.delta",
-            payload: { streamKind: "assistant_text", delta: output },
-          });
-        }
-
-        if (!transcriptResult.completedTurn && context.activeTurnId === turnId) {
-          const completedAt = yield* currentTimestamp;
-          emit({
-            ...runtimeEventBase({
-              threadId: input.threadId,
-              ...(options.instanceId ? { instanceId: options.instanceId } : {}),
-              turnId,
-              createdAt: completedAt,
-              method: "agy.print",
-              rawSource,
-              payload: { exit: 0 },
-            }),
-            type: "turn.completed",
-            payload: { state: "completed" },
-          });
-          context.activeTurnId = undefined;
-          context.session = {
-            ...context.session,
-            status: "ready",
-            activeTurnId: undefined,
-            updatedAt: completedAt,
-          };
-        }
-
-        if (context.conversationId) {
-          context.pollOffset = yield* Effect.promise(() =>
-            transcriptSizeForConversation({ settings, conversationId: context.conversationId! }),
-          );
-          context.pollCarry = "";
-          startTranscriptPoller(context);
-        }
-
-        return {
-          threadId: input.threadId,
-          turnId,
-          ...(context.conversationId
-            ? { resumeCursor: { conversationId: context.conversationId } }
-            : {}),
-        } satisfies ProviderTurnStartResult;
-      }
+        }, 500);
+      };
 
       if (!context.conversationId) {
-        const parsedJson = yield* Effect.try({
-          try: () => JSON.parse(stdout) as unknown,
-          catch: (cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "new-conversation",
-              detail: "Antigravity agentapi returned invalid JSON.",
-              cause,
-            }),
-        });
-        const decoded = yield* Effect.try({
-          try: () => decodeNewConversationResponse(parsedJson),
-          catch: (cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "new-conversation",
-              detail: "Antigravity agentapi response did not include a conversation id.",
-              cause,
-            }),
-        });
-        context.conversationId = decoded.response.newConversation.conversationId;
-        const cursor = { conversationId: context.conversationId };
-        const resumedAt = yield* currentTimestamp;
-        context.session = {
-          ...context.session,
-          resumeCursor: cursor,
-          updatedAt: resumedAt,
-        };
-        emit({
-          ...runtimeEventBase({
-            threadId: input.threadId,
-            ...(options.instanceId ? { instanceId: options.instanceId } : {}),
-            createdAt: resumedAt,
-            method: "thread.start",
-            rawSource: "antigravity.agentapi",
-            payload: cursor,
-          }),
-          type: "thread.started",
-          payload: { providerThreadId: context.conversationId },
-        });
+        startConversationIdPoller(context);
+        let waited = 0;
+        while (!context.conversationId && waited < 5000 && !context.stopped) {
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 50)));
+          waited += 50;
+        }
+      } else {
         startTranscriptPoller(context);
-        startGatePoller(context);
+        if (endpoint) {
+          startGatePoller(context);
+        }
       }
 
       return {

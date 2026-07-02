@@ -31,7 +31,7 @@ import {
 const PROVIDER = ProviderDriverKind.make("antigravity");
 const ANTIGRAVITY_PRESENTATION = {
   displayName: "Antigravity",
-  showInteractionModeToggle: false,
+  showInteractionModeToggle: true,
 } as const;
 
 export const DEFAULT_ANTIGRAVITY_HOME_PATH = "~/.gemini/antigravity-cli";
