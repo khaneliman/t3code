@@ -1520,8 +1520,10 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
         }
       } else {
         startTranscriptPoller(context);
+        yield* Effect.promise(() => pollTranscriptOnce(context));
         if (endpoint) {
           startGatePoller(context);
+          yield* Effect.promise(() => pollGates(context));
         }
       }
 
