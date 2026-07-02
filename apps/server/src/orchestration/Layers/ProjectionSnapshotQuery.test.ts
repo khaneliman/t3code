@@ -1432,6 +1432,107 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(shellSnapshot.threads.length, 0);
     }),
   );
+
+  it.effect("reads thread detail and snapshot sequence together", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_turns`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-1',
+          'Project 1',
+          '/tmp/project-1',
+          NULL,
+          '[]',
+          '2026-04-07T00:00:00.000Z',
+          '2026-04-07T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          latest_user_message_at,
+          pending_approval_count,
+          pending_user_input_count,
+          has_actionable_proposed_plan,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-1',
+          'project-1',
+          'Thread 1',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          0,
+          0,
+          0,
+          '2026-04-07T00:00:02.000Z',
+          '2026-04-07T00:00:03.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_state (projector, last_applied_sequence, updated_at)
+        VALUES
+          (${ORCHESTRATION_PROJECTOR_NAMES.projects}, 9, '2026-04-07T00:00:04.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threads}, 9, '2026-04-07T00:00:04.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadMessages}, 7, '2026-04-07T00:00:04.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans}, 9, '2026-04-07T00:00:04.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadActivities}, 9, '2026-04-07T00:00:04.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadSessions}, 9, '2026-04-07T00:00:04.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.checkpoints}, 9, '2026-04-07T00:00:04.000Z')
+      `;
+
+      const detailSnapshot = yield* snapshotQuery.getThreadDetailSnapshotById(
+        ThreadId.make("thread-1"),
+      );
+      assert.equal(detailSnapshot._tag, "Some");
+      if (detailSnapshot._tag === "Some") {
+        assert.equal(detailSnapshot.value.thread.id, ThreadId.make("thread-1"));
+        assert.equal(detailSnapshot.value.snapshotSequence, 7);
+      }
+
+      const missing = yield* snapshotQuery.getThreadDetailSnapshotById(
+        ThreadId.make("thread-missing"),
+      );
+      assert.equal(missing._tag, "None");
+    }),
+  );
 });
 
 it.effect(

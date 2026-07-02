@@ -1894,7 +1894,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       } satisfies OrchestrationThreadShell);
     });
 
-  const getThreadDetailById: ProjectionSnapshotQueryShape["getThreadDetailById"] = (threadId) =>
+  const readThreadDetail = (threadId: ThreadId) =>
     Effect.gen(function* () {
       const [
         threadRow,
@@ -2033,6 +2033,46 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       );
     });
 
+  const getThreadDetailById: ProjectionSnapshotQueryShape["getThreadDetailById"] = readThreadDetail;
+
+  // The transaction pins one consistent view: the projector cursors that make
+  // up `snapshotSequence` and the detail rows are written atomically by the
+  // command transaction, so reading both inside a single read transaction
+  // guarantees the sequence never claims an event the detail body is missing.
+  const getThreadDetailSnapshotById: ProjectionSnapshotQueryShape["getThreadDetailSnapshotById"] = (
+    threadId,
+  ) =>
+    sql
+      .withTransaction(
+        Effect.all([
+          readThreadDetail(threadId),
+          listProjectionStateRows(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadDetailSnapshotById:listProjectionState:query",
+                "ProjectionSnapshotQuery.getThreadDetailSnapshotById:listProjectionState:decodeRows",
+              ),
+            ),
+          ),
+        ]),
+      )
+      .pipe(
+        Effect.map(([thread, stateRows]) =>
+          Option.map(thread, (value) => ({
+            snapshotSequence: computeSnapshotSequence(stateRows),
+            thread: value,
+          })),
+        ),
+        Effect.mapError((error) => {
+          if (isPersistenceError(error)) {
+            return error;
+          }
+          return toPersistenceSqlError("ProjectionSnapshotQuery.getThreadDetailSnapshotById:query")(
+            error,
+          );
+        }),
+      );
+
   return {
     getCommandReadModel,
     getSnapshot,
@@ -2047,6 +2087,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getFullThreadDiffContext,
     getThreadShellById,
     getThreadDetailById,
+    getThreadDetailSnapshotById,
   } satisfies ProjectionSnapshotQueryShape;
 });
 
