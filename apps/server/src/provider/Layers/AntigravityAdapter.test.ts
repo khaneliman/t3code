@@ -283,6 +283,12 @@ describe("AntigravityAdapter sessions", () => {
         const first = yield* adapter.sendTurn({ threadId, input: "hello", attachments: [] });
         yield* adapter.sendTurn({ threadId, input: "next", attachments: [] });
 
+        let waited = 0;
+        while (calls.length < 2 && waited < 2000) {
+          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 50)));
+          waited += 50;
+        }
+
         expect(first.resumeCursor).toEqual({ conversationId: "conv-1" });
         expect(calls[0]).toContain("--print");
         expect(calls[0]).toContain("--dangerously-skip-permissions");
@@ -318,6 +324,12 @@ describe("AntigravityAdapter sessions", () => {
           yield* adapter.startSession({ threadId, runtimeMode: "full-access", cwd: baseDir });
           const first = yield* adapter.sendTurn({ threadId, input: "hello", attachments: [] });
           yield* adapter.sendTurn({ threadId, input: "next", attachments: [] });
+
+          let waited = 0;
+          while (calls.length < 2 && waited < 2000) {
+            yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 50)));
+            waited += 50;
+          }
 
           expect(first.resumeCursor).toEqual({ conversationId: "conv-agentapi" });
           expect(calls[0]?.slice(0, 2)).toEqual(["agentapi", "new-conversation"]);
