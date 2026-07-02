@@ -43,6 +43,8 @@ import {
   antigravityLanguageServerRpc,
   makeAntigravityEnvironment,
   resolveAntigravityBinaryPath,
+  resolveAntigravityCliModelAlias,
+  resolveAntigravityHomePath,
   resolveAntigravityModelLabel,
   resolveAntigravitySettingsPath,
   transcriptPathForConversation,
@@ -50,6 +52,7 @@ import {
 
 const PROVIDER = ProviderDriverKind.make("antigravity");
 const AGENTAPI_TIMEOUT_MS = 30_000;
+const CLI_PRINT_TIMEOUT_MS = 30 * 60 * 1_000;
 const TRANSCRIPT_POLL_MS = 500;
 const GATE_POLL_MS = 750;
 const INTERRUPTED_AGENTAPI_RESULT = "__t3_antigravity_agentapi_interrupted__";
@@ -159,7 +162,11 @@ function runtimeEventBase(input: {
   readonly createdAt?: string | undefined;
   readonly method?: string | undefined;
   readonly payload?: unknown;
-  readonly rawSource?: "antigravity.transcript" | "antigravity.agentapi" | undefined;
+  readonly rawSource?:
+    | "antigravity.transcript"
+    | "antigravity.agentapi"
+    | "antigravity.cli"
+    | undefined;
 }): Omit<ProviderRuntimeEvent, "type" | "payload"> {
   return {
     eventId: eventId("antigravity"),
@@ -508,6 +515,60 @@ function runAgentApiDefault(
   });
 }
 
+function runAgyPrintDefault(
+  binaryPath: string,
+  args: ReadonlyArray<string>,
+  options: { readonly cwd: string; readonly env: NodeJS.ProcessEnv },
+  onChild?: (child: ReturnType<typeof NodeChildProcess.spawn>) => void,
+  onStdout?: (chunk: string) => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = NodeChildProcess.spawn(binaryPath, [...args], {
+      cwd: options.cwd,
+      env: options.env,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    onChild?.(child);
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timeout = NodeTimers.setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      NodeTimers.setTimeout(() => {
+        if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
+      }, 2_000).unref?.();
+    }, CLI_PRINT_TIMEOUT_MS);
+    timeout.unref?.();
+
+    child.stdout.on("data", (chunk) => {
+      const text = String(chunk);
+      stdout += text;
+      onStdout?.(text);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (cause) => {
+      NodeTimers.clearTimeout(timeout);
+      reject(cause);
+    });
+    child.on("close", (code) => {
+      NodeTimers.clearTimeout(timeout);
+      if (code === 0) {
+        resolve(stdout);
+        return;
+      }
+      if (timedOut) {
+        reject(new Error(`Antigravity CLI print timed out after ${CLI_PRINT_TIMEOUT_MS}ms`));
+        return;
+      }
+      reject(new Error(stderr.trim() || stdout.trim() || `agy exited with code ${code}`));
+    });
+  });
+}
+
 async function ensureAntigravityCliSettings(input: {
   readonly settings: AntigravitySettings;
   readonly cwd: string;
@@ -544,6 +605,55 @@ async function ensureAntigravityCliSettings(input: {
   const tempPath = `${settingsPath}.${process.pid}.${Date.now()}.tmp`;
   await NodeFSP.writeFile(tempPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
   await NodeFSP.rename(tempPath, settingsPath);
+}
+
+function buildAgyPrintArgs(input: {
+  readonly prompt: string;
+  readonly conversationId?: string | undefined;
+  readonly modelAlias?: string | undefined;
+  readonly fullAccess: boolean;
+}): ReadonlyArray<string> {
+  return [
+    ...(input.conversationId ? ["--conversation", input.conversationId] : []),
+    ...(input.modelAlias ? ["--model", input.modelAlias] : []),
+    ...(input.fullAccess ? ["--dangerously-skip-permissions"] : []),
+    "--print-timeout",
+    "30m0s",
+    "--print",
+    input.prompt,
+  ];
+}
+
+async function readLastConversationIdForCwd(input: {
+  readonly settings: AntigravitySettings;
+  readonly cwd: string;
+}): Promise<string | undefined> {
+  const cachePath = NodePath.join(
+    resolveAntigravityHomePath(input.settings),
+    "cache",
+    "last_conversations.json",
+  );
+  try {
+    const parsed = JSON.parse(await NodeFSP.readFile(cachePath, "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const conversationId = (parsed as Record<string, unknown>)[input.cwd];
+    return typeof conversationId === "string" && conversationId.trim().length > 0
+      ? conversationId.trim()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function transcriptSizeForConversation(input: {
+  readonly settings: AntigravitySettings;
+  readonly conversationId: string;
+}): Promise<number> {
+  try {
+    return (await NodeFSP.stat(transcriptPathForConversation(input))).size;
+  } catch {
+    return 0;
+  }
 }
 
 function sendCascadeGateDecision(input: {
@@ -819,94 +929,105 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
     });
   };
 
-  const startTranscriptPoller = (context: SessionContext): void => {
-    if (!context.conversationId || context.poller) return;
+  const pollTranscriptOnce = async (
+    context: SessionContext,
+  ): Promise<{ readonly emittedContent: boolean; readonly completedTurn: boolean }> => {
+    if (!context.conversationId || context.stopped) {
+      return { emittedContent: false, completedTurn: false };
+    }
     const transcriptPath = transcriptPathForConversation({
       settings,
       conversationId: context.conversationId,
     });
+    let emittedContent = false;
+    let completedTurn = false;
 
-    const poll = async () => {
-      if (context.stopped) return;
+    try {
+      const stat = await NodeFSP.stat(transcriptPath);
+      if (stat.size < context.pollOffset) {
+        context.pollOffset = 0;
+        context.pollCarry = "";
+        context.seenLines.clear();
+        context.toolCallStepIndexes.clear();
+      }
+      if (stat.size === context.pollOffset) return { emittedContent, completedTurn };
+
+      const handle = await NodeFSP.open(transcriptPath, "r");
       try {
-        const stat = await NodeFSP.stat(transcriptPath);
-        if (stat.size < context.pollOffset) {
-          context.pollOffset = 0;
-          context.pollCarry = "";
-          context.seenLines.clear();
-          context.toolCallStepIndexes.clear();
-        }
-        if (stat.size === context.pollOffset) return;
+        const length = stat.size - context.pollOffset;
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, context.pollOffset);
+        context.pollOffset = stat.size;
+        const text = context.pollCarry + buffer.toString("utf8");
+        const lines = text.split(/\r?\n/g);
+        context.pollCarry = lines.pop() ?? "";
 
-        const handle = await NodeFSP.open(transcriptPath, "r");
-        try {
-          const length = stat.size - context.pollOffset;
-          const buffer = Buffer.alloc(length);
-          await handle.read(buffer, 0, length, context.pollOffset);
-          context.pollOffset = stat.size;
-          const text = context.pollCarry + buffer.toString("utf8");
-          const lines = text.split(/\r?\n/g);
-          context.pollCarry = lines.pop() ?? "";
+        for (const line of lines) {
+          const key = line.trim();
+          if (!key || context.seenLines.has(key)) continue;
+          context.seenLines.add(key);
+          const record = parseAntigravityTranscriptLine(line);
+          if (!record) continue;
+          if (isDuplicateConcreteToolRecord(record, context.toolCallStepIndexes)) continue;
+          if (typeof record.step_index === "number" && record.tool_calls?.length) {
+            context.toolCallStepIndexes.add(record.step_index);
+          }
 
-          for (const line of lines) {
-            const key = line.trim();
-            if (!key || context.seenLines.has(key)) continue;
-            context.seenLines.add(key);
-            const record = parseAntigravityTranscriptLine(line);
-            if (!record) continue;
-            if (isDuplicateConcreteToolRecord(record, context.toolCallStepIndexes)) continue;
-            if (typeof record.step_index === "number" && record.tool_calls?.length) {
-              context.toolCallStepIndexes.add(record.step_index);
-            }
+          const mapRecord = () =>
+            mapAntigravityTranscriptRecordToRuntimeEvents({
+              record,
+              threadId: context.session.threadId,
+              ...(options.instanceId ? { instanceId: options.instanceId } : {}),
+              ...(context.activeTurnId ? { turnId: context.activeTurnId } : {}),
+              createdAt: context.session.updatedAt,
+            });
+          let mapped = mapRecord();
+          if (mapped.length === 0) continue;
+          if (context.activeTurnId === undefined && !context.stopped) {
+            reopenTurn(context);
+            mapped = mapRecord();
+          }
+          appendTurnItem(context, context.activeTurnId, record);
 
-            const mapRecord = () =>
-              mapAntigravityTranscriptRecordToRuntimeEvents({
-                record,
-                threadId: context.session.threadId,
-                ...(options.instanceId ? { instanceId: options.instanceId } : {}),
-                ...(context.activeTurnId ? { turnId: context.activeTurnId } : {}),
-                createdAt: context.session.updatedAt,
-              });
-            let mapped = mapRecord();
-            if (mapped.length === 0) continue;
-            if (context.activeTurnId === undefined && !context.stopped) {
-              reopenTurn(context);
-              mapped = mapRecord();
-            }
-            appendTurnItem(context, context.activeTurnId, record);
-
-            for (const event of mapped) {
-              emit(event);
-              if (event.type === "turn.completed") {
-                context.activeTurnId = undefined;
-                context.session = {
-                  ...context.session,
-                  status: "ready",
-                  activeTurnId: undefined,
-                  updatedAt: new Date().toISOString(),
-                };
-              }
+          for (const event of mapped) {
+            emit(event);
+            if (event.type === "content.delta") emittedContent = true;
+            if (event.type === "turn.completed") {
+              completedTurn = true;
+              context.activeTurnId = undefined;
+              context.session = {
+                ...context.session,
+                status: "ready",
+                activeTurnId: undefined,
+                updatedAt: new Date().toISOString(),
+              };
             }
           }
-        } finally {
-          await handle.close();
         }
-      } catch (cause) {
-        const error = cause instanceof Error ? cause : new Error(String(cause));
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-        emitRuntimeWarning({
-          context,
-          method: "transcript.poll",
-          message: `Failed to read Antigravity transcript: ${error.message}`,
-          detail: { transcriptPath },
-        });
+      } finally {
+        await handle.close();
       }
-    };
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return { emittedContent, completedTurn };
+      }
+      emitRuntimeWarning({
+        context,
+        method: "transcript.poll",
+        message: `Failed to read Antigravity transcript: ${error.message}`,
+        detail: { transcriptPath },
+      });
+    }
+    return { emittedContent, completedTurn };
+  };
 
+  const startTranscriptPoller = (context: SessionContext): void => {
+    if (!context.conversationId || context.poller) return;
     context.poller = NodeTimers.setInterval(() => {
-      void poll();
+      void pollTranscriptOnce(context);
     }, TRANSCRIPT_POLL_MS);
-    void poll();
+    void pollTranscriptOnce(context);
   };
 
   const startSession: AntigravityAdapterShape["startSession"] = Effect.fn(
@@ -946,6 +1067,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
       stopped: false,
     };
     yield* Ref.update(sessionsRef, (sessions) => new Map(sessions).set(input.threadId, context));
+    const rawSource = endpointFor(context) ? "antigravity.agentapi" : "antigravity.cli";
     if (context.conversationId) {
       startTranscriptPoller(context);
       startGatePoller(context);
@@ -956,7 +1078,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
         ...(options.instanceId ? { instanceId: options.instanceId } : {}),
         createdAt,
         method: "session.start",
-        rawSource: "antigravity.agentapi",
+        rawSource,
       }),
       type: "session.started",
       payload: context.conversationId ? { resume: { conversationId: context.conversationId } } : {},
@@ -978,7 +1100,18 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
 
       const cwd = context.session.cwd ?? serverConfig.cwd;
       const modelLabel = resolveAntigravityModelLabel(input.modelSelection);
-      const env = makeAntigravityEnvironment(settings, baseEnv, platform);
+      const modelAlias = resolveAntigravityCliModelAlias(input.modelSelection);
+      const endpoint = endpointFor(context);
+      const env = {
+        ...baseEnv,
+        ...(endpoint
+          ? {
+              ANTIGRAVITY_LS_ADDRESS: endpoint.address,
+              ...(endpoint.csrfToken ? { ANTIGRAVITY_CSRF_TOKEN: endpoint.csrfToken } : {}),
+            }
+          : {}),
+      };
+      const rawSource = endpoint ? "antigravity.agentapi" : "antigravity.cli";
       yield* Effect.tryPromise({
         try: () =>
           ensureAntigravityCliSettings({
@@ -1039,33 +1172,71 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
           turnId,
           createdAt: updatedAt,
           method: "turn.start",
-          rawSource: "antigravity.agentapi",
+          rawSource,
         }),
         type: "turn.started",
         payload: modelLabel ? { model: modelLabel } : {},
       });
 
-      const args = context.conversationId
-        ? ["agentapi", "send-message", context.conversationId, fullPrompt]
-        : ["agentapi", "new-conversation", fullPrompt];
+      let cliTranscriptStartOffset = 0;
+      if (!endpoint) {
+        if (context.poller) {
+          NodeTimers.clearInterval(context.poller);
+          context.poller = undefined;
+        }
+        if (context.conversationId) {
+          cliTranscriptStartOffset = yield* Effect.promise(() =>
+            transcriptSizeForConversation({ settings, conversationId: context.conversationId! }),
+          );
+          context.pollOffset = cliTranscriptStartOffset;
+          context.pollCarry = "";
+        }
+      }
+
+      const args = endpoint
+        ? context.conversationId
+          ? ["agentapi", "send-message", context.conversationId, fullPrompt]
+          : [
+              "agentapi",
+              "new-conversation",
+              ...(modelAlias ? [`--model=${modelAlias}`] : []),
+              fullPrompt,
+            ]
+        : buildAgyPrintArgs({
+            prompt: fullPrompt,
+            conversationId: context.conversationId,
+            modelAlias,
+            fullAccess: context.session.runtimeMode === "full-access",
+          });
+      const commandMethod = endpoint ? (args[1] ?? "agentapi") : "agy.print";
       const stdout = yield* Effect.tryPromise({
         try: () =>
           options.runAgentApi
             ? options.runAgentApi(binaryPath, args, { cwd, env })
-            : runAgentApiDefault(binaryPath, args, { cwd, env }, (child) => {
-                context.agentApiCancel = () => {
-                  if (child.exitCode !== null || child.killed) return;
-                  child.kill("SIGTERM");
-                  NodeTimers.setTimeout(() => {
-                    if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
-                  }, 2_000).unref?.();
-                };
-              }),
+            : endpoint
+              ? runAgentApiDefault(binaryPath, args, { cwd, env }, (child) => {
+                  context.agentApiCancel = () => {
+                    if (child.exitCode !== null || child.killed) return;
+                    child.kill("SIGTERM");
+                    NodeTimers.setTimeout(() => {
+                      if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
+                    }, 2_000).unref?.();
+                  };
+                })
+              : runAgyPrintDefault(binaryPath, args, { cwd, env }, (child) => {
+                  context.agentApiCancel = () => {
+                    if (child.exitCode !== null || child.killed) return;
+                    child.kill("SIGTERM");
+                    NodeTimers.setTimeout(() => {
+                      if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
+                    }, 2_000).unref?.();
+                  };
+                }),
         catch: (cause) => {
           const detail = cause instanceof Error ? cause.message : String(cause);
           return new ProviderAdapterRequestError({
             provider: PROVIDER,
-            method: args[1] ?? "agentapi",
+            method: commandMethod,
             detail,
             cause,
           });
@@ -1086,9 +1257,9 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                 ...(options.instanceId ? { instanceId: options.instanceId } : {}),
                 turnId,
                 createdAt: failedAt,
-                method: "agentapi.error",
-                rawSource: "antigravity.agentapi",
-                payload: { method: args[1] ?? "agentapi", detail: error.detail },
+                method: `${commandMethod}.error`,
+                rawSource,
+                payload: { method: commandMethod, detail: error.detail },
               }),
               type: "runtime.error",
               payload: { message, class: "provider_error", detail: error.detail },
@@ -1099,9 +1270,9 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                 ...(options.instanceId ? { instanceId: options.instanceId } : {}),
                 turnId,
                 createdAt: failedAt,
-                method: "agentapi.error",
-                rawSource: "antigravity.agentapi",
-                payload: { method: args[1] ?? "agentapi", detail: error.detail },
+                method: `${commandMethod}.error`,
+                rawSource,
+                payload: { method: commandMethod, detail: error.detail },
               }),
               type: "turn.completed",
               payload: { state: "failed", errorMessage: message },
@@ -1121,6 +1292,99 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
       );
       context.agentApiCancel = undefined;
       if (stdout === INTERRUPTED_AGENTAPI_RESULT) {
+        return {
+          threadId: input.threadId,
+          turnId,
+          ...(context.conversationId
+            ? { resumeCursor: { conversationId: context.conversationId } }
+            : {}),
+        } satisfies ProviderTurnStartResult;
+      }
+
+      if (!endpoint) {
+        if (!context.conversationId) {
+          const discoveredConversationId = yield* Effect.promise(() =>
+            readLastConversationIdForCwd({ settings, cwd }),
+          );
+          if (discoveredConversationId) {
+            context.conversationId = discoveredConversationId;
+            context.pollOffset = 0;
+            context.pollCarry = "";
+            const cursor = { conversationId: discoveredConversationId };
+            const resumedAt = yield* currentTimestamp;
+            context.session = {
+              ...context.session,
+              resumeCursor: cursor,
+              updatedAt: resumedAt,
+            };
+            emit({
+              ...runtimeEventBase({
+                threadId: input.threadId,
+                ...(options.instanceId ? { instanceId: options.instanceId } : {}),
+                createdAt: resumedAt,
+                method: "thread.start",
+                rawSource,
+                payload: cursor,
+              }),
+              type: "thread.started",
+              payload: { providerThreadId: discoveredConversationId },
+            });
+          }
+        }
+
+        const transcriptResult = context.conversationId
+          ? yield* Effect.promise(() => pollTranscriptOnce(context))
+          : { emittedContent: false, completedTurn: false };
+        const output = stdout.trim();
+        if (output && !transcriptResult.emittedContent) {
+          appendTurnItem(context, turnId, { source: "cli", content: output });
+          emit({
+            ...runtimeEventBase({
+              threadId: input.threadId,
+              ...(options.instanceId ? { instanceId: options.instanceId } : {}),
+              turnId,
+              createdAt: yield* currentTimestamp,
+              method: "agy.print",
+              rawSource,
+              payload: { stdoutBytes: Buffer.byteLength(stdout, "utf8") },
+            }),
+            type: "content.delta",
+            payload: { streamKind: "assistant_text", delta: output },
+          });
+        }
+
+        if (!transcriptResult.completedTurn && context.activeTurnId === turnId) {
+          const completedAt = yield* currentTimestamp;
+          emit({
+            ...runtimeEventBase({
+              threadId: input.threadId,
+              ...(options.instanceId ? { instanceId: options.instanceId } : {}),
+              turnId,
+              createdAt: completedAt,
+              method: "agy.print",
+              rawSource,
+              payload: { exit: 0 },
+            }),
+            type: "turn.completed",
+            payload: { state: "completed" },
+          });
+          context.activeTurnId = undefined;
+          context.session = {
+            ...context.session,
+            status: "ready",
+            activeTurnId: undefined,
+            updatedAt: completedAt,
+          };
+        }
+
+        if (context.conversationId) {
+          context.pollOffset = yield* Effect.promise(() =>
+            transcriptSizeForConversation({ settings, conversationId: context.conversationId! }),
+          );
+          context.pollCarry = "";
+          startTranscriptPoller(context);
+        }
+
         return {
           threadId: input.threadId,
           turnId,

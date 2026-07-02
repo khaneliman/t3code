@@ -32,29 +32,18 @@ function threadTitleInput(model = "Gemini 3.5 Flash (Low)") {
 }
 
 describe("AntigravityTextGeneration", () => {
-  it.effect("reads structured output from transcript after fake new-conversation response", () =>
+  it.effect("extracts structured JSON from fake agy --print output", () =>
     Effect.gen(function* () {
       const baseDir = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "antig-text-")),
       );
       try {
-        const conversationId = "conv-title";
-        const transcriptPath = NodePath.join(
-          baseDir,
-          "brain",
-          conversationId,
-          ".system_generated",
-          "logs",
-          "transcript.jsonl",
-        );
         const binaryPath = yield* Effect.promise(() =>
           makeFakeAgy(
             baseDir,
             `#!/usr/bin/env bash
 set -euo pipefail
-mkdir -p '${NodePath.dirname(transcriptPath)}'
-printf '%s\\n' '{"source":"MODEL","content":"Here is JSON: {\\"title\\":\\"Antigravity support\\"}"}' > '${transcriptPath}'
-printf '%s\\n' '{"response":{"newConversation":{"conversationId":"${conversationId}"}}}'
+printf '%s\\n' 'Here is JSON: {"title":"Antigravity support"}'
 `,
           ),
         );
@@ -73,30 +62,20 @@ printf '%s\\n' '{"response":{"newConversation":{"conversationId":"${conversation
     }),
   );
 
-  it.effect("buffers partial transcript lines until newline completes JSON object", () =>
+  it.effect("extracts JSON from CLI output split across writes", () =>
     Effect.gen(function* () {
       const baseDir = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "antig-text-partial-")),
       );
       try {
-        const conversationId = "conv-partial";
-        const transcriptPath = NodePath.join(
-          baseDir,
-          "brain",
-          conversationId,
-          ".system_generated",
-          "logs",
-          "transcript.jsonl",
-        );
         const binaryPath = yield* Effect.promise(() =>
           makeFakeAgy(
             baseDir,
             `#!/usr/bin/env bash
 set -euo pipefail
-mkdir -p '${NodePath.dirname(transcriptPath)}'
-printf '%s' '{"source":"MODEL","content":"{\\"title\\":\\"Partial' > '${transcriptPath}'
-(sleep 0.2; printf '%s\\n' ' title\\"}"}' >> '${transcriptPath}') &
-printf '%s\\n' '{"response":{"newConversation":{"conversationId":"${conversationId}"}}}'
+printf '%s' '{"title":"Partial'
+sleep 0.1
+printf '%s\\n' ' title"}'
 `,
           ),
         );
@@ -115,7 +94,7 @@ printf '%s\\n' '{"response":{"newConversation":{"conversationId":"${conversation
     }),
   );
 
-  it.effect("returns TextGenerationError when agentapi returns invalid JSON", () =>
+  it.effect("returns TextGenerationError when CLI returns invalid JSON", () =>
     Effect.gen(function* () {
       const baseDir = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "antig-text-invalid-")),
@@ -139,7 +118,7 @@ printf '%s\\n' 'not-json'
 
         expect(result._tag).toBe("Failure");
         if (result._tag === "Failure") {
-          expect(String(result.cause)).toContain("Antigravity agentapi returned invalid JSON");
+          expect(String(result.cause)).toContain("Antigravity CLI returned invalid JSON");
         }
       } finally {
         yield* Effect.promise(() => NodeFSP.rm(baseDir, { recursive: true, force: true }));

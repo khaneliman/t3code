@@ -29,6 +29,7 @@ const RuntimeEventRawSource = Schema.Union([
   Schema.Literal("acp.jsonrpc"),
   Schema.Literal("antigravity.transcript"),
   Schema.Literal("antigravity.agentapi"),
+  Schema.Literal("antigravity.cli"),
   Schema.TemplateLiteral(["acp.", Schema.String, ".extension"]),
 ]);
 export type RuntimeEventRawSource = typeof RuntimeEventRawSource.Type;
