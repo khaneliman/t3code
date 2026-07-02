@@ -97,6 +97,20 @@ describe("ServerSettings worktree defaults", () => {
       decodeServerSettingsPatch({ newWorktreesStartFromOrigin: true }).newWorktreesStartFromOrigin,
     ).toBe(true);
   });
+
+  it("defaults Antigravity provider settings", () => {
+    const decoded = decodeServerSettings({});
+    expect(decoded.providers.antigravity).toMatchObject({
+      enabled: true,
+      binaryPath: "agy",
+      homePath: "",
+      brainPath: "",
+      settingsPath: "",
+      languageServerAddress: "",
+      csrfToken: "",
+      customModels: [],
+    });
+  });
 });
 
 describe("ServerSettingsPatch.providerInstances", () => {
@@ -166,6 +180,22 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(patch.providerInstances?.[ProviderInstanceId.make("codex_personal")]?.config).toEqual({
       homePath: "  ~/.codex-personal  ",
     });
+  });
+
+  it("accepts Antigravity provider patches", () => {
+    const patch = decodeServerSettingsPatch({
+      providers: {
+        antigravity: {
+          binaryPath: "  /opt/bin/agy  ",
+          languageServerAddress: "  http://127.0.0.1:34123  ",
+          csrfToken: "  token  ",
+        },
+      },
+    });
+
+    expect(patch.providers?.antigravity?.binaryPath).toBe("/opt/bin/agy");
+    expect(patch.providers?.antigravity?.languageServerAddress).toBe("http://127.0.0.1:34123");
+    expect(patch.providers?.antigravity?.csrfToken).toBe("token");
   });
 
   it("trims encoded server settings values before validation", () => {
