@@ -17,6 +17,7 @@ import { hasCloudPublicConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
 import { syncDocumentWindowControlsOverlayClass } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
+import { applyDocumentTextScale, resolveInitialTextScale } from "./textScale";
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();
@@ -26,6 +27,8 @@ const router = getRouter(history);
 if (isElectron) {
   syncDocumentWindowControlsOverlayClass();
 }
+
+applyDocumentTextScale(resolveInitialTextScale());
 
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
 

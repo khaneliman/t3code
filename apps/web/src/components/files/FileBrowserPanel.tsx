@@ -86,7 +86,7 @@ export default function FileBrowserPanel({
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-3">
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-medium text-foreground">{projectName}</div>
-          <div className="truncate text-[10px] leading-none text-muted-foreground">
+          <div className="truncate text-[0.625rem] leading-none text-muted-foreground">
             {entriesQuery.isPending && entriesQuery.data === null
               ? "Indexing…"
               : `${fileCount.toLocaleString()} files`}

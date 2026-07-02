@@ -127,10 +127,10 @@ const DIFF_PANEL_UNSAFE_CSS = `
   border-bottom: 1px solid var(--border) !important;
   align-items: center !important;
   font-family: var(--font-sans) !important;
-  font-size: 12px !important;
+  font-size: 0.75rem !important;
   line-height: 1 !important;
-  min-height: 32px !important;
-  padding-block: 6px !important;
+  min-height: 2rem !important;
+  padding-block: 0.375rem !important;
 }
 
 [data-diffs-header] [data-header-content] {
@@ -147,7 +147,7 @@ const DIFF_PANEL_UNSAFE_CSS = `
 [data-diffs-header] [data-additions-count],
 [data-diffs-header] [data-deletions-count] {
   font-family: var(--font-mono) !important;
-  font-size: 11px !important;
+  font-size: 0.6875rem !important;
   font-variant-numeric: tabular-nums;
   line-height: 1 !important;
 }
@@ -165,7 +165,7 @@ const DIFF_PANEL_UNSAFE_CSS = `
     text-decoration-color 120ms ease;
   text-decoration: underline;
   text-decoration-color: transparent;
-  text-underline-offset: 2px;
+  text-underline-offset: 0.125rem;
   font-family: var(--font-sans) !important;
 }
 
@@ -607,7 +607,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
                     />
                   </div>
                 </div>
-                <div className="grid shrink-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 border-b border-border/70 ps-3 pe-6.5 pt-2 pb-1.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                <div className="grid shrink-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 border-b border-border/70 ps-3 pe-6.5 pt-2 pb-1.5 font-medium text-[0.625rem] text-muted-foreground uppercase tracking-wide">
                   <span aria-hidden="true" />
                   <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center">
                     <span>Branch</span>
@@ -756,14 +756,14 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
         <>
           <div className="diff-panel-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {isSelectedPatchTruncated && (
-              <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+              <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[0.6875rem] text-muted-foreground">
                 This diff was truncated because it exceeded the preview limit. The changes shown are
                 incomplete.
               </p>
             )}
             {selectedPatchError && !renderablePatch && (
               <div className="px-3">
-                <p className="mb-2 text-[11px] text-red-500/80">{selectedPatchError}</p>
+                <p className="mb-2 text-[0.6875rem] text-red-500/80">{selectedPatchError}</p>
               </div>
             )}
             {!renderablePatch ? (
@@ -855,10 +855,12 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
             ) : (
               <div className="min-h-0 flex-1 overflow-auto p-2">
                 <div className="space-y-2">
-                  <p className="text-[11px] text-muted-foreground/75">{renderablePatch.reason}</p>
+                  <p className="text-[0.6875rem] text-muted-foreground/75">
+                    {renderablePatch.reason}
+                  </p>
                   <pre
                     className={cn(
-                      "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90",
+                      "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[0.6875rem] leading-relaxed text-muted-foreground/90",
                       wordWrap
                         ? "overflow-auto whitespace-pre-wrap wrap-break-word"
                         : "overflow-auto",

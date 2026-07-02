@@ -252,7 +252,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
                   >
                     {index < wizardStep ? <CheckIcon className="size-3" /> : null}
                   </span>
-                  <span className="text-[10px] font-medium uppercase text-muted-foreground">
+                  <span className="text-[0.625rem] font-medium uppercase text-muted-foreground">
                     Step {index + 1}
                   </span>
                   <span className="truncate text-xs font-semibold text-foreground">
@@ -346,7 +346,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
                   value={label}
                   onChange={(event) => setLabel(event.target.value)}
                 />
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[0.6875rem] text-muted-foreground">
                   Shown in the provider list. Optional.
                 </span>
               </label>
@@ -363,9 +363,9 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
                   aria-invalid={showInstanceIdError}
                 />
                 {showInstanceIdError ? (
-                  <span className="text-[11px] text-destructive">{instanceIdError}</span>
+                  <span className="text-[0.6875rem] text-destructive">{instanceIdError}</span>
                 ) : (
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-[0.6875rem] text-muted-foreground">
                     Routing key used by threads and sessions. Letters, digits, '-', or '_'.
                   </span>
                 )}
@@ -413,7 +413,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
                     </Button>
                   ) : null}
                 </div>
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[0.6875rem] text-muted-foreground">
                   Optional marker shown in the picker.
                 </span>
               </div>

@@ -1,5 +1,7 @@
 import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
+import { TextScale, type TextScale as TextScaleValue } from "@t3tools/contracts/settings";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import * as NodeFS from "node:fs";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -15,13 +17,25 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 const ClientSettingsDocumentSchema = Schema.Struct({
   settings: ClientSettingsSchema,
 });
+const TextScaleSettingsSlice = Schema.Struct({
+  textScale: Schema.optionalKey(TextScale),
+});
+const TextScaleSettingsDocumentSchema = Schema.Struct({
+  settings: TextScaleSettingsSlice,
+});
 
 const ClientSettingsJson = fromLenientJson(ClientSettingsSchema);
 const LegacyClientSettingsDocumentJson = fromLenientJson(ClientSettingsDocumentSchema);
+const TextScaleSettingsSliceJson = fromLenientJson(TextScaleSettingsSlice);
+const TextScaleSettingsDocumentJson = fromLenientJson(TextScaleSettingsDocumentSchema);
 const decodeLegacyClientSettingsDocumentJson = Schema.decodeEffect(
   LegacyClientSettingsDocumentJson,
 );
 const decodeClientSettingsJsonValue = Schema.decodeEffect(ClientSettingsJson);
+const decodeTextScaleSettingsSliceJson = Schema.decodeUnknownOption(TextScaleSettingsSliceJson);
+const decodeTextScaleSettingsDocumentJson = Schema.decodeUnknownOption(
+  TextScaleSettingsDocumentJson,
+);
 const decodeClientSettingsJson = (raw: string): Effect.Effect<ClientSettings, Schema.SchemaError> =>
   decodeLegacyClientSettingsDocumentJson(raw).pipe(
     Effect.map((document) => document.settings),
@@ -30,6 +44,28 @@ const decodeClientSettingsJson = (raw: string): Effect.Effect<ClientSettings, Sc
     }),
   );
 const encodeClientSettingsJson = Schema.encodeEffect(ClientSettingsJson);
+
+function decodeInitialTextScaleJson(raw: string): TextScaleValue | null {
+  const legacyDocument = decodeTextScaleSettingsDocumentJson(raw);
+  if (Option.isSome(legacyDocument)) {
+    return legacyDocument.value.settings.textScale ?? null;
+  }
+
+  const directSettings = decodeTextScaleSettingsSliceJson(raw);
+  if (Option.isSome(directSettings)) {
+    return directSettings.value.textScale ?? null;
+  }
+
+  return null;
+}
+
+export function readInitialTextScaleFileSync(settingsPath: string): TextScaleValue | null {
+  try {
+    return decodeInitialTextScaleJson(NodeFS.readFileSync(settingsPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
 
 const DesktopClientSettingsWriteOperation = Schema.Literals([
   "create-temporary-file-name",

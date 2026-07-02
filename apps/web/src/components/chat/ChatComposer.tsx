@@ -2194,7 +2194,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               <button
                 type="button"
                 className={cn(
-                  "min-w-0 flex-1 truncate bg-transparent p-0 text-left text-[14px] focus:outline-none",
+                  "min-w-0 flex-1 truncate bg-transparent p-0 text-left text-sm focus:outline-none",
                   (activePendingProgress ? activePendingProgress.customAnswer : prompt.trim())
                     ? "text-foreground"
                     : "text-muted-foreground/35",
@@ -2340,7 +2340,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             />
                           </button>
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-muted-foreground/70">
+                          <div className="flex h-full w-full items-center justify-center px-1 text-center text-[0.625rem] text-muted-foreground/70">
                             {image.name}
                           </div>
                         )}

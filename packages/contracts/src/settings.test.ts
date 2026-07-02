@@ -4,12 +4,14 @@ import * as Schema from "effect/Schema";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
+  ClientSettingsPatch,
   DEFAULT_SERVER_SETTINGS,
   ServerSettings,
   ServerSettingsPatch,
 } from "./settings.ts";
 
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
@@ -28,6 +30,26 @@ describe("ClientSettings word wrap", () => {
     expect(decoded.wordWrap).toBe(true);
     expect(decoded).not.toHaveProperty("chatWordWrap");
     expect(decoded).not.toHaveProperty("diffWordWrap");
+  });
+});
+
+describe("ClientSettings textScale", () => {
+  it("defaults to 100", () => {
+    expect(decodeClientSettings({}).textScale).toBe(100);
+  });
+
+  it("validates scale bounds", () => {
+    expect(decodeClientSettings({ textScale: 120 }).textScale).toBe(120);
+    expect(() => decodeClientSettings({ textScale: 50 })).toThrow();
+    expect(() => decodeClientSettings({ textScale: 250 })).toThrow();
+  });
+
+  it("rejects non-integer scale values", () => {
+    expect(() => decodeClientSettings({ textScale: 120.5 })).toThrow();
+  });
+
+  it("accepts valid scale patches", () => {
+    expect(decodeClientSettingsPatch({ textScale: 150 }).textScale).toBe(150);
   });
 });
 

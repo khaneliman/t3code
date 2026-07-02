@@ -83,7 +83,7 @@ export function ContextWindowMeter(props: {
           <div className="flex items-center justify-between gap-3">
             <div className="font-medium text-muted-foreground text-xs">Context Window</div>
             {usage.maxTokens !== null && usedPercentage ? (
-              <div className="text-[11px] tabular-nums text-muted-foreground/70">
+              <div className="text-[0.6875rem] tabular-nums text-muted-foreground/70">
                 <span>{usedPercentage}</span>
                 <span className="mx-1">·</span>
                 <span>
@@ -92,7 +92,7 @@ export function ContextWindowMeter(props: {
                 </span>
               </div>
             ) : (
-              <div className="text-[11px] tabular-nums text-muted-foreground/70">
+              <div className="text-[0.6875rem] tabular-nums text-muted-foreground/70">
                 {formatContextWindowTokens(usage.usedTokens)}
               </div>
             )}
@@ -113,7 +113,7 @@ export function ContextWindowMeter(props: {
             </div>
           ) : null}
           {showTotalProcessed ? (
-            <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
+            <div className="flex items-center justify-between gap-3 text-[0.6875rem] leading-4">
               <span className="text-muted-foreground/60">Total processed</span>
               <span className="font-medium tabular-nums text-muted-foreground/80">
                 {formatContextWindowTokens(totalProcessedTokens)}
@@ -121,7 +121,7 @@ export function ContextWindowMeter(props: {
             </div>
           ) : null}
           {usage.compactsAutomatically ? (
-            <div className="mt-1 text-pretty text-[11px] font-medium text-muted-foreground/70">
+            <div className="mt-1 text-pretty text-[0.6875rem] font-medium text-muted-foreground/70">
               {providerDisplayName ?? "It"} automatically compacts its context when needed.
             </div>
           ) : null}

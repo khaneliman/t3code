@@ -45,11 +45,13 @@ describe("clientPersistenceStorage", () => {
     const settings = {
       ...DEFAULT_CLIENT_SETTINGS,
       timestampFormat: "24-hour" as const,
+      textScale: 150 as const,
     };
 
     writeBrowserClientSettings(settings);
 
     expect(readBrowserClientSettings()).toEqual(settings);
+    expect(window.localStorage.getItem("t3code:text-scale:v1")).toBe("150");
   });
 
   it("reports structured decode failures while preserving the fallback", async () => {

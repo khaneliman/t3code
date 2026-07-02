@@ -17,6 +17,7 @@ import {
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
+import { DEFAULT_TEXT_SCALE, type TextScale } from "@t3tools/contracts/settings";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
@@ -65,10 +66,16 @@ import { previewEnvironment } from "../state/preview";
 import { terminalEnvironment } from "../state/terminal";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useClientSettings } from "../hooks/useSettings";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
+const TERMINAL_BASE_FONT_SIZE = 12;
+
+export function resolveTerminalFontSize(textScale: TextScale): number {
+  return TERMINAL_BASE_FONT_SIZE * (textScale / DEFAULT_TEXT_SCALE);
+}
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
@@ -334,6 +341,8 @@ export function TerminalViewport({
   const selectionActionTimerRef = useRef<number | null>(null);
   const keybindingsRef = useRef(keybindings);
   const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
+  const textScale = useClientSettings((settings) => settings.textScale);
+  const terminalFontSize = resolveTerminalFontSize(textScale);
   const handleSessionExited = useEffectEvent(() => {
     onSessionExited();
   });
@@ -388,7 +397,7 @@ export function TerminalViewport({
     const terminal = new Terminal({
       cursorBlink: true,
       lineHeight: 1,
-      fontSize: 12,
+      fontSize: terminalFontSize,
       scrollback: 5_000,
       fontFamily:
         '"SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace',
@@ -702,10 +711,31 @@ export function TerminalViewport({
       fitAddonRef.current = null;
       terminal.dispose();
     };
-    // autoFocus is intentionally omitted;
-    // it is only read at mount time and must not trigger terminal teardown/recreation.
+    // autoFocus and terminalFontSize are intentionally omitted;
+    // they are handled without terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, worktreePath]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!terminal || !fitAddon || terminal.options.fontSize === terminalFontSize) {
+      return;
+    }
+
+    const previousCols = terminal.cols;
+    const previousRows = terminal.rows;
+    const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+    terminal.options.fontSize = terminalFontSize;
+    fitTerminalSafely(fitAddon);
+    if (wasAtBottom) {
+      terminal.scrollToBottom();
+    }
+    terminal.refresh(0, terminal.rows - 1);
+    if (terminal.cols !== previousCols || terminal.rows !== previousRows) {
+      void resizeTerminal(terminal.cols, terminal.rows);
+    }
+  }, [resizeTerminal, terminalFontSize]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -1382,7 +1412,7 @@ export default function ThreadTerminalDrawer({
 
           {hasTerminalSidebar && (
             <aside className="flex w-36 min-w-36 flex-col border border-border/70 bg-muted/10">
-              <div className="flex h-[22px] items-stretch justify-end border-b border-border/70">
+              <div className="flex h-[1.375rem] items-stretch justify-end border-b border-border/70">
                 <div className="inline-flex h-full items-stretch">
                   <TerminalActionButton
                     className={`inline-flex h-full items-center px-1 text-foreground/90 transition-colors ${
@@ -1436,7 +1466,7 @@ export default function ThreadTerminalDrawer({
                       {showGroupHeaders && (
                         <button
                           type="button"
-                          className={`flex w-full items-center rounded px-1 py-0.5 text-[10px] uppercase tracking-[0.08em] ${
+                          className={`flex w-full items-center rounded px-1 py-0.5 text-[0.625rem] uppercase tracking-[0.08em] ${
                             isGroupActive
                               ? "bg-accent/70 text-foreground"
                               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -1458,14 +1488,14 @@ export default function ThreadTerminalDrawer({
                           return (
                             <div
                               key={terminalId}
-                              className={`group flex items-center gap-1 rounded px-1 py-0.5 text-[11px] ${
+                              className={`group flex items-center gap-1 rounded px-1 py-0.5 text-[0.6875rem] ${
                                 isActive
                                   ? "bg-accent text-foreground"
                                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                               }`}
                             >
                               {showGroupHeaders && (
-                                <span className="text-[10px] text-muted-foreground/80">└</span>
+                                <span className="text-[0.625rem] text-muted-foreground/80">└</span>
                               )}
                               <button
                                 type="button"

@@ -27,6 +27,26 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
   return result as Awaited<ReturnType<DesktopBridge["ensureSshEnvironment"]>>;
 }
 
+function readInitialTextScale(): ReturnType<DesktopBridge["getInitialTextScale"]> {
+  const result = ipcRenderer.sendSync(IpcChannels.GET_INITIAL_TEXT_SCALE_CHANNEL);
+  return typeof result === "number" ? result : null;
+}
+
+function applyInitialTextScale(scale: unknown) {
+  if (typeof scale !== "number" || !Number.isInteger(scale) || scale < 80 || scale > 200) {
+    return;
+  }
+  document.documentElement.style.fontSize = `${scale}%`;
+  document.documentElement.style.setProperty("--t3-text-scale-factor", String(scale / 100));
+  document.documentElement.dataset.textScale = String(scale);
+}
+
+try {
+  applyInitialTextScale(readInitialTextScale());
+} catch {
+  // The renderer applies the default before React mounts if sync IPC is unavailable.
+}
+
 contextBridge.exposeInMainWorld("desktopBridge", {
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
@@ -42,6 +62,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     }
     return result as ReturnType<DesktopBridge["getLocalEnvironmentBootstraps"]>;
   },
+  getInitialTextScale: readInitialTextScale,
   getLocalEnvironmentBearerToken: () =>
     ipcRenderer.invoke(IpcChannels.GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL),
   getClientSettings: () => ipcRenderer.invoke(IpcChannels.GET_CLIENT_SETTINGS_CHANNEL),

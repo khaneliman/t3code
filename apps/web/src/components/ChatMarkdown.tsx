@@ -1197,7 +1197,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       />
       <TooltipPopup
         side="top"
-        className="max-w-[min(40rem,calc(100vw-2rem))] font-mono text-[11px] leading-tight"
+        className="max-w-[min(40rem,calc(100vw-2rem))] font-mono text-[0.6875rem] leading-tight"
       >
         <div className="markdown-file-link-tooltip-scroll overflow-x-auto whitespace-nowrap">
           {displayPath}

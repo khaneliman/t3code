@@ -95,7 +95,7 @@ function StatBlock({
 }) {
   return (
     <div className="min-w-0 border-border/60 px-4 py-3 sm:px-5">
-      <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+      <div className="flex min-w-0 items-center gap-1.5 text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
         <span className="min-w-0 truncate">{label}</span>
         {tooltip ? (
           <Tooltip>
@@ -112,7 +112,7 @@ function StatBlock({
             />
             <TooltipPopup
               side="top"
-              className="max-w-[min(300px,calc(100vw-2rem))] whitespace-normal text-left text-[11px] leading-relaxed text-wrap"
+              className="max-w-[min(300px,calc(100vw-2rem))] whitespace-normal text-left text-[0.6875rem] leading-relaxed text-wrap"
             >
               {tooltip}
             </TooltipPopup>
@@ -187,7 +187,7 @@ function ExpandableText({
       {canExpand ? (
         <button
           type="button"
-          className="mt-1 text-[11px] font-medium text-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
+          className="mt-1 text-[0.6875rem] font-medium text-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
           onClick={() => setExpanded((value) => !value)}
         >
           {expanded ? "Show less" : expandLabel}
@@ -225,7 +225,7 @@ function DiagnosticsTable({
             ))}
           </colgroup>
         ) : null}
-        <thead className="border-b border-border/60 text-[11px] uppercase tracking-[0.08em] text-muted-foreground/70">
+        <thead className="border-b border-border/60 text-[0.6875rem] uppercase tracking-[0.08em] text-muted-foreground/70">
           <tr>
             {headers.map((header, index) => (
               <th
@@ -257,14 +257,14 @@ function TraceIdCell({ traceId }: { traceId: string }) {
       <Tooltip>
         <TooltipTrigger
           render={
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px]">
+            <span className="min-w-0 flex-1 truncate font-mono text-[0.6875rem]">
               {shortenTraceId(traceId)}
             </span>
           }
         />
         <TooltipPopup
           side="top"
-          className="max-w-[min(520px,calc(100vw-2rem))] break-all font-mono text-[11px]"
+          className="max-w-[min(520px,calc(100vw-2rem))] break-all font-mono text-[0.6875rem]"
         >
           {traceId}
         </TooltipPopup>
@@ -339,7 +339,7 @@ function ProcessNameCell({
         />
         <TooltipPopup
           side="top"
-          className="max-w-[min(440px,calc(100vw-2rem))] whitespace-normal break-words text-left font-mono text-[11px] leading-relaxed text-wrap"
+          className="max-w-[min(440px,calc(100vw-2rem))] whitespace-normal break-words text-left font-mono text-[0.6875rem] leading-relaxed text-wrap"
         >
           {process.command}
         </TooltipPopup>
@@ -365,7 +365,7 @@ function ProcessSignalActions({
             <button
               type="button"
               disabled={isSignaling}
-              className="text-[11px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
+              className="text-[0.6875rem] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
               onClick={() => onSignal(process.pid, "SIGINT")}
             >
               INT
@@ -380,7 +380,7 @@ function ProcessSignalActions({
             <button
               type="button"
               disabled={isSignaling}
-              className="text-[11px] font-medium text-destructive underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+              className="text-[0.6875rem] font-medium text-destructive underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
               onClick={() => onSignal(process.pid, "SIGKILL")}
             >
               KILL
@@ -453,7 +453,7 @@ function ProcessDiagnosticsTable({
           <col className="w-[11%]" />
           <col className="w-[6%]" />
         </colgroup>
-        <thead className="sticky top-0 z-10 border-b border-border/60 bg-card text-[11px] uppercase tracking-[0.08em] text-muted-foreground/70">
+        <thead className="sticky top-0 z-10 border-b border-border/60 bg-card text-[0.6875rem] uppercase tracking-[0.08em] text-muted-foreground/70">
           <tr>
             <th className="px-4 py-2 font-semibold sm:pl-5">Name</th>
             <th className="px-3 py-2 text-right font-semibold">CPU</th>
@@ -494,7 +494,7 @@ function ProcessDiagnosticsTable({
                   />
                   <TooltipPopup
                     side="top"
-                    className="max-w-[min(440px,calc(100vw-2rem))] whitespace-normal break-words text-left font-mono text-[11px] leading-relaxed text-wrap"
+                    className="max-w-[min(440px,calc(100vw-2rem))] whitespace-normal break-words text-left font-mono text-[0.6875rem] leading-relaxed text-wrap"
                   >
                     {process.command}
                   </TooltipPopup>
@@ -568,7 +568,7 @@ function ResourceHistoryProcessNameCell({
         />
         <TooltipPopup
           side="top"
-          className="max-w-[min(440px,calc(100vw-2rem))] whitespace-normal break-words text-left font-mono text-[11px] leading-relaxed text-wrap"
+          className="max-w-[min(440px,calc(100vw-2rem))] whitespace-normal break-words text-left font-mono text-[0.6875rem] leading-relaxed text-wrap"
         >
           {process.command}
         </TooltipPopup>
@@ -640,7 +640,7 @@ function ResourceHistoryWindowSelector({
           key={option.windowMs}
           type="button"
           className={cn(
-            "h-6 rounded-sm px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground",
+            "h-6 rounded-sm px-2 text-[0.6875rem] font-medium text-muted-foreground hover:text-foreground",
             selectedWindowMs === option.windowMs && "bg-muted text-foreground",
           )}
           onClick={() => onSelect(option.windowMs)}
@@ -682,7 +682,7 @@ function ProcessResourceHistoryTable({
           <col className="w-[16%]" />
           <col className="w-[10%]" />
         </colgroup>
-        <thead className="sticky top-0 z-10 border-b border-border/60 bg-card text-[11px] uppercase tracking-[0.08em] text-muted-foreground/70">
+        <thead className="sticky top-0 z-10 border-b border-border/60 bg-card text-[0.6875rem] uppercase tracking-[0.08em] text-muted-foreground/70">
           <tr>
             <th className="px-4 py-2 font-semibold sm:pl-5">Process</th>
             <th className="px-3 py-2 text-right font-semibold">CPU Time</th>
@@ -736,7 +736,7 @@ function ProcessResourceHistoryTable({
                   />
                   <TooltipPopup
                     side="top"
-                    className="max-w-[min(440px,calc(100vw-2rem))] whitespace-normal break-words text-left font-mono text-[11px] leading-relaxed text-wrap"
+                    className="max-w-[min(440px,calc(100vw-2rem))] whitespace-normal break-words text-left font-mono text-[0.6875rem] leading-relaxed text-wrap"
                   >
                     {process.command}
                   </TooltipPopup>
@@ -758,11 +758,11 @@ function DiagnosticsLastChecked({ checkedAt }: { checkedAt: DateTime.Utc | null 
   const relative = checkedAt ? formatRelativeTime(DateTime.formatIso(checkedAt)) : null;
 
   if (!relative) {
-    return <span className="text-[11px] text-muted-foreground/50">Checking</span>;
+    return <span className="text-[0.6875rem] text-muted-foreground/50">Checking</span>;
   }
 
   return (
-    <span className="text-[11px] text-muted-foreground/60">
+    <span className="text-[0.6875rem] text-muted-foreground/60">
       {relative.suffix ? (
         <>
           Checked <span className="font-mono tabular-nums">{relative.value}</span> {relative.suffix}
@@ -1268,7 +1268,7 @@ export function DiagnosticsSettingsPanel() {
                 <col className="w-[26%]" />
                 <col className="w-[30%]" />
               </colgroup>
-              <thead className="border-b border-border/60 text-[11px] uppercase tracking-[0.08em] text-muted-foreground/70">
+              <thead className="border-b border-border/60 text-[0.6875rem] uppercase tracking-[0.08em] text-muted-foreground/70">
                 <tr>
                   <th className="whitespace-nowrap px-4 py-2.5 font-semibold sm:pl-5">Time</th>
                   <th className="whitespace-nowrap px-4 py-2.5 font-semibold">Level</th>
@@ -1287,7 +1287,7 @@ export function DiagnosticsSettingsPanel() {
                       {formatRelativeNoWrap(event.seenAt)}
                     </td>
                     <td className="px-4 py-3 align-top">
-                      <span className="inline-flex rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase text-foreground/80">
+                      <span className="inline-flex rounded bg-muted px-1.5 py-0.5 font-mono text-[0.6875rem] font-medium uppercase text-foreground/80">
                         {event.level}
                       </span>
                     </td>

@@ -29,6 +29,7 @@ const clientSettings: ClientSettings = {
   sidebarThreadPreviewCount: 6,
   timestampFormat: "24-hour",
   wordWrap: true,
+  textScale: 100,
 };
 
 const decodeClientSettingsJson = Schema.decodeEffect(Schema.fromJsonString(ClientSettingsSchema));
@@ -153,6 +154,28 @@ describe("DesktopClientSettings", () => {
     ),
   );
 
+  it.effect("reads initial text scale from direct client settings documents", () =>
+    withClientSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          environment.clientSettingsPath,
+          `{
+            "timestampFormat": "24-hour",
+            "textScale": 150
+          }\n`,
+        );
+
+        assert.equal(
+          DesktopClientSettings.readInitialTextScaleFileSync(environment.clientSettingsPath),
+          150,
+        );
+      }),
+    ),
+  );
+
   it.effect("loads legacy wrapped client settings documents", () =>
     withClientSettings(
       Effect.gen(function* () {
@@ -178,6 +201,30 @@ describe("DesktopClientSettings", () => {
     ),
   );
 
+  it.effect("reads initial text scale from legacy wrapped client settings documents", () =>
+    withClientSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          environment.clientSettingsPath,
+          `{
+            "settings": {
+              "timestampFormat": "12-hour",
+              "textScale": 175
+            }
+          }\n`,
+        );
+
+        assert.equal(
+          DesktopClientSettings.readInitialTextScaleFileSync(environment.clientSettingsPath),
+          175,
+        );
+      }),
+    ),
+  );
+
   it.effect("loads defaults from empty client settings documents", () =>
     withClientSettings(
       Effect.gen(function* () {
@@ -188,6 +235,35 @@ describe("DesktopClientSettings", () => {
         yield* fileSystem.writeFileString(environment.clientSettingsPath, "{}\n");
 
         assert.deepEqual(yield* settings.get, Option.some(yield* decodeClientSettingsJson("{}")));
+      }),
+    ),
+  );
+
+  it.effect("returns null for missing, malformed, invalid, or absent initial text scale", () =>
+    withClientSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+
+        assert.isNull(
+          DesktopClientSettings.readInitialTextScaleFileSync(environment.clientSettingsPath),
+        );
+
+        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.writeFileString(environment.clientSettingsPath, "{not-json");
+        assert.isNull(
+          DesktopClientSettings.readInitialTextScaleFileSync(environment.clientSettingsPath),
+        );
+
+        yield* fileSystem.writeFileString(environment.clientSettingsPath, `{"textScale": 250}\n`);
+        assert.isNull(
+          DesktopClientSettings.readInitialTextScaleFileSync(environment.clientSettingsPath),
+        );
+
+        yield* fileSystem.writeFileString(environment.clientSettingsPath, "{}\n");
+        assert.isNull(
+          DesktopClientSettings.readInitialTextScaleFileSync(environment.clientSettingsPath),
+        );
       }),
     ),
   );

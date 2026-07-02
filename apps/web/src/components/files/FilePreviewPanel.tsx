@@ -807,7 +807,7 @@ export default function FilePreviewPanel({
         </div>
       ) : null}
       {relativePath && file.data?.truncated ? (
-        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/8 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/8 px-3 py-1.5 text-[0.6875rem] text-amber-700 dark:text-amber-300">
           Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte file.
         </div>
       ) : null}

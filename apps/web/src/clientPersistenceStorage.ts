@@ -1,8 +1,7 @@
 import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
 
 import { getLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
-
-export const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
+import { CLIENT_SETTINGS_STORAGE_KEY, writeTextScaleMirror } from "./textScale";
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";
@@ -27,4 +26,5 @@ export function writeBrowserClientSettings(settings: ClientSettings): void {
   }
 
   setLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, settings, ClientSettingsSchema);
+  writeTextScaleMirror(settings.textScale);
 }
