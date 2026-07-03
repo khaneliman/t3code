@@ -5,7 +5,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
-import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import type { ScopedThreadRef, TurnId, VcsStatusResult } from "@t3tools/contracts";
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -76,6 +76,17 @@ interface CollapsedDiffFilesState {
 }
 
 const EMPTY_COLLAPSED_DIFF_FILE_KEYS: ReadonlySet<string> = new Set();
+
+function gitStatusRefreshSignature(status: VcsStatusResult | null): string | null {
+  if (!status) return null;
+  return JSON.stringify({
+    refName: status.refName,
+    hasWorkingTreeChanges: status.hasWorkingTreeChanges,
+    aheadCount: status.aheadCount,
+    behindCount: status.behindCount,
+    files: status.workingTree.files.map((file) => [file.path, file.insertions, file.deletions]),
+  });
+}
 
 const DIFF_PANEL_UNSAFE_CSS = `
 [data-diffs-header],
@@ -274,10 +285,8 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
     selectedTurnId === null
       ? selectedGitScope === "unstaged"
         ? "Working tree"
-        : "Branch changes"
-      : selectedTurn?.turnId === latestTurn?.turnId
-        ? "Latest turn"
-        : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
+        : "Branch vs base"
+      : "Turn changes";
   const reviewSectionId = selectedTurn ? `turn:${selectedTurn.turnId}` : selectedGitScope;
   const collapseScopeKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
@@ -287,10 +296,10 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
       ? collapsedDiffFiles.fileKeys
       : EMPTY_COLLAPSED_DIFF_FILE_KEYS;
   const reviewSectionTitle = selectedTurn
-    ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
+    ? `Turn changes (${selectedCheckpointTurnCount ?? "?"})`
     : selectedGitScope === "unstaged"
       ? "Working tree"
-      : "Branch changes";
+      : "Branch vs base";
   const selectedCheckpointRange = useMemo(
     () =>
       typeof selectedCheckpointTurnCount === "number"
@@ -344,6 +353,32 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
   const branchDiffPreview = shouldRetryBranchDiffAtEnvironmentCwd
     ? fallbackBranchDiffPreview
     : primaryBranchDiffPreview;
+  const branchDiffPreviewRefresh = branchDiffPreview.refresh;
+  const gitStatusSignature = useMemo(
+    () => gitStatusRefreshSignature(gitStatusQuery.data),
+    [gitStatusQuery.data],
+  );
+  const hasObservedGitStatusRef = useRef(false);
+  useEffect(() => {
+    hasObservedGitStatusRef.current = false;
+  }, [activeCwd, activeThread?.environmentId]);
+  useEffect(() => {
+    if (
+      selectedTurnId !== null ||
+      gitStatusSignature === null ||
+      gitStatusQuery.data?.isRepo !== true
+    ) {
+      return;
+    }
+    if (!hasObservedGitStatusRef.current) {
+      hasObservedGitStatusRef.current = true;
+      return;
+    }
+    const refreshTimer = window.setTimeout(() => {
+      branchDiffPreviewRefresh();
+    }, 750);
+    return () => window.clearTimeout(refreshTimer);
+  }, [branchDiffPreviewRefresh, gitStatusQuery.data?.isRepo, gitStatusSignature, selectedTurnId]);
   const selectedGitSource = branchDiffPreview.data?.sources.find(
     (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
   );
@@ -518,7 +553,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
               )}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => selectGitScope("branch")}>
-              <span>Branch changes</span>
+              <span>Branch vs base</span>
               {selectedTurnId === null && selectedGitScope === "branch" && (
                 <CheckIcon className="ml-auto" />
               )}
@@ -528,13 +563,13 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
                 if (latestTurn) selectTurn(latestTurn.turnId);
               }}
             >
-              <span>Latest turn</span>
+              <span>Turn changes</span>
               {selectedTurnId !== null && selectedTurn?.turnId === latestTurn?.turnId && (
                 <CheckIcon className="ml-auto" />
               )}
             </DropdownMenuItem>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>Turn</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger>All turns</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-64">
                 {orderedTurnDiffSummaries.map((summary) => {
                   const turnCount =

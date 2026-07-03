@@ -9,10 +9,10 @@ const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.
 describe("diffPanelStore", () => {
   beforeEach(() => useDiffPanelStore.setState({ byThreadKey: {}, branchBaseRefByThreadKey: {} }));
 
-  it("defaults each thread to branch changes with automatic base selection", () => {
+  it("defaults each thread to working tree changes", () => {
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: null });
+    ).toEqual({ kind: "unstaged" });
   });
 
   it("clears incompatible selection fields when changing scopes", () => {

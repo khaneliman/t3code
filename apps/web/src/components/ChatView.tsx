@@ -195,10 +195,12 @@ import {
   useProject,
   useProjects,
   useThread,
+  useThreadShells,
   useThreadProposedPlans,
   useThreadRefs,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
+import { resolveSharedCheckoutWarning } from "../lib/sharedCheckoutWarnings";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -1207,6 +1209,7 @@ function ChatViewContent(props: ChatViewProps) {
   const storeSetActiveTerminal = useTerminalUiStateStore((s) => s.setActiveTerminal);
   const storeCloseTerminal = useTerminalUiStateStore((s) => s.closeTerminal);
   const serverThreadRefs = useThreadRefs();
+  const serverThreadShells = useThreadShells();
   const serverThreadKeys = useMemo(() => serverThreadRefs.map(scopedThreadKey), [serverThreadRefs]);
   const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
   const draftThreadKeys = useMemo(
@@ -1437,6 +1440,31 @@ function ChatViewContent(props: ChatViewProps) {
   // Compute the list of environments this logical project spans, used to
   // drive the environment picker in BranchToolbar.
   const allProjects = useProjects();
+  const sharedCheckoutWarning = useMemo(
+    () =>
+      activeThread
+        ? resolveSharedCheckoutWarning({
+            activeThread,
+            threads: serverThreadShells,
+            projects: allProjects,
+          })
+        : null,
+    [activeThread, allProjects, serverThreadShells],
+  );
+  const showSharedCheckoutWarning = useCallback(() => {
+    if (!sharedCheckoutWarning) return;
+    const overlappingCount = sharedCheckoutWarning.overlappingThreadIds.length;
+    toastManager.add(
+      stackedThreadToast({
+        type: "warning",
+        title: "Shared checkout active",
+        description:
+          overlappingCount === 1
+            ? "Another running thread is using this local checkout."
+            : `${overlappingCount} running threads are using this local checkout.`,
+      }),
+    );
+  }, [sharedCheckoutWarning]);
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
   const activeEnvironment =
     activeThread == null ? null : (environmentById.get(activeThread.environmentId) ?? null);
@@ -4003,6 +4031,9 @@ function ChatViewContent(props: ChatViewProps) {
       setThreadError(threadIdForSend, "Select a base branch before sending in New worktree mode.");
       return;
     }
+    if (!shouldCreateWorktree && sharedCheckoutWarning) {
+      showSharedCheckoutWarning();
+    }
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
@@ -4480,6 +4511,7 @@ function ChatViewContent(props: ChatViewProps) {
       const threadIdForSend = activeThread.id;
       const messageIdForSend = newMessageId();
       const messageCreatedAt = new Date().toISOString();
+      showSharedCheckoutWarning();
       const outgoingMessageText = formatOutgoingPrompt({
         provider: ctxSelectedProvider,
         model: ctxSelectedModel,
@@ -4603,6 +4635,7 @@ function ChatViewContent(props: ChatViewProps) {
       runtimeMode,
       setComposerDraftInteractionMode,
       setThreadError,
+      showSharedCheckoutWarning,
       startThreadTurn,
       autoOpenPlanSidebar,
       environmentId,
@@ -4650,6 +4683,7 @@ function ChatViewContent(props: ChatViewProps) {
     const nextThreadTitle = truncate(buildPlanImplementationThreadTitle(planMarkdown));
     const nextThreadModelSelection: ModelSelection = ctxSelectedModelSelection;
 
+    showSharedCheckoutWarning();
     sendInFlightRef.current = true;
     beginLocalDispatch({ preparingWorktree: false });
     const finish = () => {
@@ -4764,6 +4798,7 @@ function ChatViewContent(props: ChatViewProps) {
     navigate,
     resetLocalDispatch,
     runtimeMode,
+    showSharedCheckoutWarning,
     startThreadTurn,
     autoOpenPlanSidebar,
     environmentId,
