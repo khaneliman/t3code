@@ -84,8 +84,10 @@ export interface AntigravityTranscriptRecord {
   readonly source?: string;
   readonly type?: string;
   readonly status?: string;
+  readonly created_at?: string;
   readonly content?: string;
   readonly error?: string;
+  readonly thinking?: string;
   readonly tool_calls?: ReadonlyArray<{
     readonly name?: string;
     readonly args?: Record<string, unknown>;
@@ -93,6 +95,20 @@ export interface AntigravityTranscriptRecord {
 }
 
 type AntigravityToolCall = NonNullable<AntigravityTranscriptRecord["tool_calls"]>[number];
+type AntigravityToolLifecycleStatus = "inProgress" | "completed" | "failed";
+type AntigravityToolItemType =
+  | "command_execution"
+  | "file_change"
+  | "mcp_tool_call"
+  | "dynamic_tool_call"
+  | "collab_agent_tool_call"
+  | "web_search";
+
+interface AntigravityToolDescriptor {
+  readonly itemType: AntigravityToolItemType;
+  readonly title: string;
+  readonly kind: string;
+}
 
 interface SessionContext {
   session: ProviderSession;
@@ -197,19 +213,154 @@ function normalizeTranscriptType(value: string | undefined): string {
   return (value ?? "").trim().toUpperCase();
 }
 
-function toolDetail(tool: AntigravityToolCall): string | undefined {
-  const args = tool.args ?? {};
+function normalizeTranscriptText(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function stripTranscriptEnvelope(value: string | undefined): string | undefined {
+  const content = trimText(value);
+  if (!content) return undefined;
+
+  const lines = normalizeTranscriptText(content).split("\n");
+  let index = 0;
+  let strippedMetadata = false;
+  while (index < lines.length) {
+    const trimmed = lines[index]?.trim() ?? "";
+    if (/^(Created At|Completed At):\s*\S+/iu.test(trimmed)) {
+      strippedMetadata = true;
+      index += 1;
+      continue;
+    }
+    if (strippedMetadata && trimmed.length === 0) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+
+  const stripped = lines.slice(index).join("\n").trim();
+  return stripped.length > 0 ? stripped : undefined;
+}
+
+function stripAntigravityToolIndent(value: string): string {
+  return value
+    .split("\n")
+    .map((line) => line.replace(/^\t{1,4}/u, "").trimEnd())
+    .join("\n")
+    .trim();
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function parseJsonLineRecords(value: string | undefined): ReadonlyArray<Record<string, unknown>> {
+  if (!value) return [];
+  const parsed: Record<string, unknown>[] = [];
+  for (const line of value.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) continue;
+    try {
+      const record = asRecord(JSON.parse(trimmed) as unknown);
+      if (record) parsed.push(record);
+    } catch {
+      // Antigravity sometimes truncates tool output mid-object. Keep raw text.
+    }
+  }
+  return parsed;
+}
+
+function antigravityToolDescriptor(method: string): AntigravityToolDescriptor | undefined {
+  if (method.includes("RUN_COMMAND")) {
+    return { itemType: "command_execution", title: "Ran command", kind: "execute" };
+  }
+  if (method.includes("VIEW_FILE")) {
+    return { itemType: "dynamic_tool_call", title: "Read file", kind: "read" };
+  }
+  if (method.includes("GREP_SEARCH")) {
+    return { itemType: "dynamic_tool_call", title: "Searched files", kind: "search" };
+  }
+  if (method.includes("LIST_DIRECTORY") || method.includes("LIST_DIR")) {
+    return { itemType: "dynamic_tool_call", title: "Listed directory", kind: "list" };
+  }
+  if (method.includes("CODE_ACTION")) {
+    return { itemType: "file_change", title: "Edited file", kind: "edit" };
+  }
+  if (method.includes("CHECKPOINT")) {
+    return { itemType: "file_change", title: "Checkpoint captured", kind: "checkpoint" };
+  }
+  if (method.includes("SEARCH_WEB")) {
+    return { itemType: "web_search", title: "Web search", kind: "web_search" };
+  }
+  if (method.includes("READ_URL_CONTENT")) {
+    return { itemType: "web_search", title: "Read URL", kind: "read_url" };
+  }
+  if (method.includes("MCP_TOOL")) {
+    return { itemType: "mcp_tool_call", title: "MCP tool", kind: "mcp" };
+  }
+  if (method.includes("INVOKE_SUBAGENT")) {
+    return {
+      itemType: "collab_agent_tool_call",
+      title: "Subagent",
+      kind: "collab_agent",
+    };
+  }
+  if (method.includes("ASK_QUESTION")) {
+    return { itemType: "dynamic_tool_call", title: "Asked question", kind: "question" };
+  }
+  if (method.includes("GENERIC")) {
+    return { itemType: "dynamic_tool_call", title: "Tool update", kind: "generic" };
+  }
+  return undefined;
+}
+
+function isIgnoredTranscriptRecord(method: string, source: string): boolean {
+  return (
+    method.includes("SYSTEM_MESSAGE") ||
+    method.includes("USER_INPUT") ||
+    method.includes("CONVERSATION_HISTORY") ||
+    method.includes("EPHEMERAL_MESSAGE") ||
+    (source.length > 0 && source !== "MODEL" && !method.includes("ERROR"))
+  );
+}
+
+function toolArgs(tool: AntigravityToolCall): Record<string, unknown> {
+  return tool.args ?? {};
+}
+
+function quotedAntigravityArg(value: unknown): string | undefined {
+  const text = trimText(value);
+  if (!text) return undefined;
+  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function toolCommand(args: Record<string, unknown>): string | undefined {
   const command =
-    trimText(args.command) ??
-    trimText(args.Command) ??
-    trimText(args.command_line) ??
-    trimText(args.CommandLine);
+    quotedAntigravityArg(args.command) ??
+    quotedAntigravityArg(args.Command) ??
+    quotedAntigravityArg(args.command_line) ??
+    quotedAntigravityArg(args.CommandLine);
+  return command;
+}
+
+function toolPath(args: Record<string, unknown>): string | undefined {
   const target =
-    trimText(args.TargetFile) ??
-    trimText(args.target_file) ??
-    trimText(args.file_path) ??
-    trimText(args.path);
-  return command ?? target ?? tool.name;
+    quotedAntigravityArg(args.AbsolutePath) ??
+    quotedAntigravityArg(args.TargetFile) ??
+    quotedAntigravityArg(args.target_file) ??
+    quotedAntigravityArg(args.file_path) ??
+    quotedAntigravityArg(args.path);
+  return target;
+}
+
+function toolDetail(tool: AntigravityToolCall): string | undefined {
+  const args = toolArgs(tool);
+  return toolCommand(args) ?? toolPath(args) ?? trimText(tool.name);
 }
 
 function toolTitle(tool: AntigravityToolCall): string {
@@ -219,19 +370,10 @@ function toolTitle(tool: AntigravityToolCall): string {
   if (normalized === "list_dir" || normalized === "list_directory") return "Listed directory";
   if (normalized === "read_file") return "Read file";
   if (normalized === "write_to_file" || normalized === "write_file") return "Write file";
+  if (normalized === "grep_search") return "Searched files";
+  if (normalized === "run_command") return "Ran command";
+  if (normalized === "view_file") return "Read file";
   return name;
-}
-
-function itemTypeForTranscript(record: AntigravityTranscriptRecord) {
-  const type = normalizeTranscriptType(record.type);
-  if (type.includes("RUN_COMMAND")) return "command_execution" as const;
-  if (type.includes("CODE_ACTION") || type.includes("FILE")) return "file_change" as const;
-  if (type.includes("LIST_DIRECTORY") || type.includes("LIST_DIR")) {
-    return "dynamic_tool_call" as const;
-  }
-  if (record.tool_calls && record.tool_calls.length > 0) return "dynamic_tool_call" as const;
-  if (type.includes("PLANNER") || type.includes("PLAN")) return "plan" as const;
-  return "assistant_message" as const;
 }
 
 function isTerminalResponseRecord(input: {
@@ -241,11 +383,205 @@ function isTerminalResponseRecord(input: {
 }): boolean {
   return (
     input.status === "DONE" &&
-    (input.method.includes("FINAL") ||
-      input.method.includes("RESPONSE") ||
-      input.method.includes("PLANNER")) &&
+    input.method.includes("FINAL_RESPONSE") &&
     !(input.record.tool_calls && input.record.tool_calls.length > 0)
   );
+}
+
+function lifecycleStatusForRecord(input: {
+  readonly status: string;
+  readonly rawOutput: Record<string, unknown> | undefined;
+}): AntigravityToolLifecycleStatus {
+  if (input.status === "RUNNING") return "inProgress";
+  if (input.status === "ERROR") return "failed";
+  const exitCode = input.rawOutput?.exitCode;
+  if (typeof exitCode === "number" && exitCode > 0) return "failed";
+  return "completed";
+}
+
+function itemEventTypeForStatus(status: AntigravityToolLifecycleStatus) {
+  return status === "inProgress" ? "item.updated" : "item.completed";
+}
+
+function extractTranscriptFilePath(body: string | undefined): string | undefined {
+  if (!body) return undefined;
+  const fileUriMatch = /File Path:\s*`?file:\/\/([^`\s]+)`?/iu.exec(body);
+  if (fileUriMatch?.[1]) return fileUriMatch[1];
+  const targetMatch = /(?:tool to|to):\s*(?<path>\/\S+)/iu.exec(body);
+  return trimText(targetMatch?.groups?.path)?.replace(/\.$/u, "");
+}
+
+function extractTaskDescription(body: string | undefined): string | undefined {
+  if (!body) return undefined;
+  return trimText(
+    /Task Description:\s*(?<description>.*?)(?:\s+Task logs are available at:|$)/isu.exec(body)
+      ?.groups?.description,
+  );
+}
+
+function extractCommandRawOutput(body: string | undefined): Record<string, unknown> | undefined {
+  if (!body) return undefined;
+  const cleaned = stripAntigravityToolIndent(body);
+  const lines = cleaned.split("\n");
+  const output: Record<string, unknown> = {};
+  const failed = /command failed with exit code:\s*(?<code>\d+)/iu.exec(cleaned);
+  if (failed?.groups?.code) {
+    output.exitCode = Number.parseInt(failed.groups.code, 10);
+  } else if (/command completed successfully/iu.test(cleaned)) {
+    output.exitCode = 0;
+  }
+
+  const sectionIndexes: Array<{ readonly key: "stdout" | "stderr"; readonly index: number }> = [];
+  for (const [index, line] of lines.entries()) {
+    const trimmed = line.trim();
+    if (trimmed === "Output:" || trimmed === "Stdout:") {
+      sectionIndexes.push({ key: "stdout", index });
+    } else if (trimmed === "Stderr:") {
+      sectionIndexes.push({ key: "stderr", index });
+    }
+  }
+
+  for (const [sectionIndex, section] of sectionIndexes.entries()) {
+    const next = sectionIndexes[sectionIndex + 1]?.index ?? lines.length;
+    const value = lines
+      .slice(section.index + 1, next)
+      .join("\n")
+      .trim();
+    if (value.length > 0) {
+      output[section.key] = value;
+    }
+  }
+
+  if (Object.keys(output).length === 0) {
+    return cleaned ? { content: cleaned } : undefined;
+  }
+  return output;
+}
+
+function buildToolRawOutput(input: {
+  readonly method: string;
+  readonly body: string | undefined;
+  readonly jsonLines: ReadonlyArray<Record<string, unknown>>;
+}): Record<string, unknown> | undefined {
+  const { method, body, jsonLines } = input;
+  if (method.includes("RUN_COMMAND")) return extractCommandRawOutput(body);
+  if (!body) return undefined;
+
+  if (method.includes("GREP_SEARCH")) {
+    const paths = new Set(
+      jsonLines.map((entry) => trimText(entry.File)).filter((entry): entry is string => !!entry),
+    );
+    return {
+      content: body,
+      totalFiles: paths.size,
+      ...(jsonLines.length > 0 ? { locations: jsonLines } : {}),
+    };
+  }
+
+  if (method.includes("LIST_DIRECTORY")) {
+    return {
+      content: body,
+      entries: jsonLines,
+    };
+  }
+
+  return { content: body };
+}
+
+function extractChangedFilesFromToolOutput(input: {
+  readonly method: string;
+  readonly body: string | undefined;
+  readonly jsonLines: ReadonlyArray<Record<string, unknown>>;
+  readonly path: string | undefined;
+}): ReadonlyArray<{ readonly path: string }> | undefined {
+  const changed = new Set<string>();
+  if (input.method.includes("CODE_ACTION") || input.method.includes("CHECKPOINT")) {
+    if (input.path) changed.add(input.path);
+    for (const line of input.body?.split("\n") ?? []) {
+      const diffMatch = /^diff --git a\/(?<path>.+?) b\//u.exec(line.trim());
+      if (diffMatch?.groups?.path) changed.add(diffMatch.groups.path);
+    }
+  }
+  for (const entry of input.jsonLines) {
+    const path = trimText(entry.File) ?? trimText(entry.path);
+    if (path && (input.method.includes("CODE_ACTION") || input.method.includes("CHECKPOINT"))) {
+      changed.add(path);
+    }
+  }
+  return changed.size > 0 ? [...changed].map((path) => ({ path })) : undefined;
+}
+
+function toolDetailForTranscript(input: {
+  readonly method: string;
+  readonly body: string | undefined;
+  readonly jsonLines: ReadonlyArray<Record<string, unknown>>;
+  readonly path: string | undefined;
+}): string | undefined {
+  const { method, body, jsonLines, path } = input;
+  if (method.includes("VIEW_FILE") || method.includes("CODE_ACTION")) return path;
+  if (method.includes("GREP_SEARCH")) {
+    if (body === "No results found") return "No results found";
+    const files = new Set(
+      jsonLines.map((entry) => trimText(entry.File)).filter((entry): entry is string => !!entry),
+    );
+    if (files.size > 0) return `${files.size.toLocaleString()} file${files.size === 1 ? "" : "s"}`;
+  }
+  if (method.includes("LIST_DIRECTORY") && jsonLines.length > 0) {
+    return `${jsonLines.length.toLocaleString()} entr${jsonLines.length === 1 ? "y" : "ies"}`;
+  }
+  if (method.includes("GENERIC")) return extractTaskDescription(body);
+  if (method.includes("CHECKPOINT")) {
+    return body
+      ?.split("\n")
+      .find((line) => line.trim().length > 0)
+      ?.trim();
+  }
+  return undefined;
+}
+
+function toolDataForTranscript(input: {
+  readonly record: AntigravityTranscriptRecord;
+  readonly method: string;
+  readonly descriptor: AntigravityToolDescriptor;
+  readonly body: string | undefined;
+}): Record<string, unknown> {
+  const jsonLines = parseJsonLineRecords(input.body);
+  const path = extractTranscriptFilePath(input.body);
+  const rawOutput = buildToolRawOutput({ method: input.method, body: input.body, jsonLines });
+  const changes = extractChangedFilesFromToolOutput({
+    method: input.method,
+    body: input.body,
+    jsonLines,
+    path,
+  });
+  return {
+    toolCallId: `antigravity-step-${input.record.step_index ?? "x"}`,
+    kind: input.descriptor.kind,
+    ...(path ? { path } : {}),
+    ...(changes ? { changes } : {}),
+    ...(rawOutput ? { rawOutput } : {}),
+    ...(jsonLines.length > 0 ? { records: jsonLines } : {}),
+  };
+}
+
+function toolDataForToolCall(input: {
+  readonly record: AntigravityTranscriptRecord;
+  readonly tool: AntigravityToolCall;
+  readonly index: number;
+}): Record<string, unknown> {
+  const args = toolArgs(input.tool);
+  const command = toolCommand(args);
+  const path = toolPath(args);
+  return {
+    toolCallId: `antigravity-tool-${input.record.step_index ?? "x"}-${input.index}`,
+    kind:
+      trimText(input.tool.name)
+        ?.toLowerCase()
+        .replace(/[\s-]+/g, "_") ?? "tool",
+    rawInput: args,
+    ...(command ? { command } : {}),
+    ...(path ? { path, changes: [{ path }] } : {}),
+  };
 }
 
 function sanitizeAntigravityAssistantText(value: string | undefined): string | undefined {
@@ -279,6 +615,7 @@ function sanitizeAntigravityAssistantText(value: string | undefined): string | u
     if (/^Workflow Status:/iu.test(trimmed)) continue;
     if (/^Workflow validation is now active\b/iu.test(trimmed)) continue;
     if (/^Content Priority Mode:/iu.test(trimmed)) continue;
+    if (/^No tools to call\.?(?:\s+Waiting\b.*)?$/iu.test(trimmed)) continue;
     kept.push(line);
   }
   const sanitized = kept.join("\n").trim();
@@ -337,28 +674,43 @@ export function mapAntigravityTranscriptRecordToRuntimeEvents(input: {
 }): ReadonlyArray<ProviderRuntimeEvent> {
   const { record, threadId, instanceId, turnId, createdAt } = input;
   const method = normalizeTranscriptType(record.type) || "TRANSCRIPT";
-  const itemType = itemTypeForTranscript(record);
+  const source = normalizeTranscriptType(record.source);
   const status = normalizeTranscriptType(record.status);
-  const content = trimText(record.content);
-  const error = trimText(record.error);
+  const eventCreatedAt = trimText(record.created_at) ?? createdAt;
+  const content = stripTranscriptEnvelope(record.content);
+  const error = trimText(record.error) ?? (method.includes("ERROR") ? content : undefined);
   const completesTurn = isTerminalResponseRecord({ method, status, record });
   const events: ProviderRuntimeEvent[] = [];
 
   if (method.includes("ERROR") && error) {
     events.push({
-      ...runtimeEventBase({ threadId, instanceId, turnId, createdAt, method, payload: record }),
+      ...runtimeEventBase({
+        threadId,
+        instanceId,
+        turnId,
+        createdAt: eventCreatedAt,
+        method,
+        payload: record,
+      }),
       type: "runtime.error",
       payload: { message: error, class: "provider_error", detail: record },
     });
     events.push({
-      ...runtimeEventBase({ threadId, instanceId, turnId, createdAt, method, payload: record }),
+      ...runtimeEventBase({
+        threadId,
+        instanceId,
+        turnId,
+        createdAt: eventCreatedAt,
+        method,
+        payload: record,
+      }),
       type: "turn.completed",
       payload: { state: "failed", errorMessage: error },
     });
     return events;
   }
 
-  if (record.source && normalizeTranscriptType(record.source) !== "MODEL") return events;
+  if (isIgnoredTranscriptRecord(method, source)) return events;
 
   if (record.tool_calls && record.tool_calls.length > 0) {
     for (const [index, tool] of record.tool_calls.entries()) {
@@ -371,7 +723,7 @@ export function mapAntigravityTranscriptRecordToRuntimeEvents(input: {
           instanceId,
           turnId,
           itemId,
-          createdAt,
+          createdAt: eventCreatedAt,
           method,
           payload: record,
         }),
@@ -381,100 +733,67 @@ export function mapAntigravityTranscriptRecordToRuntimeEvents(input: {
           status: "completed",
           title: toolTitle(tool),
           ...(toolDetail(tool) ? { detail: toolDetail(tool) } : {}),
-          data: tool,
-        },
-      });
-    }
-  }
-
-  if (itemType === "dynamic_tool_call") {
-    const itemId = RuntimeItemId.make(`antigravity-step-${record.step_index ?? eventId("step")}`);
-    if (!record.tool_calls || record.tool_calls.length === 0) {
-      events.push({
-        ...runtimeEventBase({
-          threadId,
-          instanceId,
-          turnId,
-          itemId,
-          createdAt,
-          method,
-          payload: record,
-        }),
-        type: "item.completed",
-        payload: {
-          itemType,
-          status: status === "ERROR" ? "failed" : "completed",
-          title: method.includes("LIST") ? "Listed directory" : "Tool call",
-          ...(content ? { detail: content } : {}),
-          data: record,
+          data: toolDataForToolCall({ record, tool, index }),
         },
       });
     }
     return events;
   }
 
-  if (itemType === "command_execution" || itemType === "file_change") {
+  const toolDescriptor = antigravityToolDescriptor(method);
+  if (toolDescriptor) {
     const itemId = RuntimeItemId.make(`antigravity-step-${record.step_index ?? eventId("step")}`);
+    const data = toolDataForTranscript({
+      record,
+      method,
+      descriptor: toolDescriptor,
+      body: content,
+    });
+    const rawOutput = asRecord(data.rawOutput);
+    const lifecycleStatus = lifecycleStatusForRecord({ status, rawOutput });
+    const jsonLines = parseJsonLineRecords(content);
+    const detail = toolDetailForTranscript({
+      method,
+      body: content,
+      jsonLines,
+      path: trimText(data.path),
+    });
     events.push({
       ...runtimeEventBase({
         threadId,
         instanceId,
         turnId,
         itemId,
-        createdAt,
+        createdAt: eventCreatedAt,
         method,
         payload: record,
       }),
-      type: "item.completed",
+      type: itemEventTypeForStatus(lifecycleStatus),
       payload: {
-        itemType,
-        status: status === "ERROR" ? "failed" : "completed",
-        title: itemType === "command_execution" ? "Ran command" : "File change",
-        ...(content ? { detail: content } : {}),
-        data: record,
+        itemType: toolDescriptor.itemType,
+        status: lifecycleStatus,
+        title: toolDescriptor.title,
+        ...(detail ? { detail } : {}),
+        data,
       },
     });
-    if (content) {
-      events.push({
-        ...runtimeEventBase({
-          threadId,
-          instanceId,
-          turnId,
-          itemId,
-          createdAt,
-          method,
-          payload: record,
-        }),
-        type: "content.delta",
-        payload: {
-          streamKind: itemType === "command_execution" ? "command_output" : "file_change_output",
-          delta: content,
-        },
-      });
-    }
     return events;
-  }
-
-  if (itemType === "plan" && (status === "DONE" || completesTurn)) {
-    const planText = sanitizeAntigravityAssistantText(content);
-    if (planText) {
-      events.push({
-        ...runtimeEventBase({ threadId, instanceId, turnId, createdAt, method, payload: record }),
-        type: "turn.proposed.completed",
-        payload: {
-          planMarkdown: planText,
-        },
-      });
-    }
   }
 
   const assistantText = sanitizeAntigravityAssistantText(content);
   if (assistantText) {
     events.push({
-      ...runtimeEventBase({ threadId, instanceId, turnId, createdAt, method, payload: record }),
+      ...runtimeEventBase({
+        threadId,
+        instanceId,
+        turnId,
+        createdAt: eventCreatedAt,
+        method,
+        payload: record,
+      }),
       type: "content.delta",
       payload: {
-        streamKind: itemType === "plan" && !completesTurn ? "plan_text" : "assistant_text",
+        streamKind: "assistant_text",
         delta: assistantText,
       },
     });
@@ -482,7 +801,14 @@ export function mapAntigravityTranscriptRecordToRuntimeEvents(input: {
 
   if (completesTurn) {
     events.push({
-      ...runtimeEventBase({ threadId, instanceId, turnId, createdAt, method, payload: record }),
+      ...runtimeEventBase({
+        threadId,
+        instanceId,
+        turnId,
+        createdAt: eventCreatedAt,
+        method,
+        payload: record,
+      }),
       type: "turn.completed",
       payload: { state: "completed" },
     });

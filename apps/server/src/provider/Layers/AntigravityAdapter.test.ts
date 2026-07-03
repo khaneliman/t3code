@@ -185,7 +185,7 @@ describe("AntigravityAdapter transcript helpers", () => {
     expect(parseAntigravityTranscriptLine("   ")).toBeUndefined();
   });
 
-  it("maps command, tool, list-dir, final response, and system error records", () => {
+  it("maps command records to structured tool output without assistant deltas", () => {
     const base = {
       threadId: ThreadId.make("thread-1"),
       instanceId: ProviderInstanceId.make("antigravity"),
@@ -193,57 +193,253 @@ describe("AntigravityAdapter transcript helpers", () => {
       createdAt: "2026-05-29T00:00:00.000Z",
     };
 
-    expect(
-      mapAntigravityTranscriptRecordToRuntimeEvents({
-        ...base,
-        record: {
-          step_index: 10,
-          source: "MODEL",
-          type: "RUN_COMMAND",
-          status: "DONE",
-          content: "47.0",
+    const events = mapAntigravityTranscriptRecordToRuntimeEvents({
+      ...base,
+      record: {
+        step_index: 10,
+        source: "MODEL",
+        type: "RUN_COMMAND",
+        status: "DONE",
+        content: [
+          "Created At: 2026-07-02T17:10:42-05:00",
+          "Completed At: 2026-07-02T17:10:42-05:00",
+          "",
+          "\t\t\t\tThe command failed with exit code: 127",
+          "\t\t\t\tOutput:",
+          "\t\t\t\tbash: line 1: pnpm: command not found\r",
+        ].join("\n"),
+      },
+    });
+    expect(events.map((event) => event.type)).toEqual(["item.completed"]);
+    expect(events[0]?.payload).toMatchObject({
+      itemType: "command_execution",
+      status: "failed",
+      title: "Ran command",
+      data: {
+        kind: "execute",
+        rawOutput: {
+          exitCode: 127,
+          stdout: "bash: line 1: pnpm: command not found",
         },
-      }).map((event) => event.type),
-    ).toEqual(["item.completed", "content.delta"]);
+      },
+    });
+  });
+
+  it("maps Antigravity search and file records to compact tool rows", () => {
+    const base = {
+      threadId: ThreadId.make("thread-1"),
+      instanceId: ProviderInstanceId.make("antigravity"),
+      turnId: TurnId.make("turn-1"),
+      createdAt: "2026-05-29T00:00:00.000Z",
+    };
+
+    const noResults = mapAntigravityTranscriptRecordToRuntimeEvents({
+      ...base,
+      record: {
+        step_index: 105,
+        source: "MODEL",
+        type: "GREP_SEARCH",
+        status: "DONE",
+        content:
+          "Created At: 2026-07-03T00:05:22-05:00\nCompleted At: 2026-07-03T00:05:22-05:00\nNo results found",
+      },
+    });
+    expect(noResults.map((event) => event.type)).toEqual(["item.completed"]);
+    expect(noResults[0]?.payload).toMatchObject({
+      itemType: "dynamic_tool_call",
+      title: "Searched files",
+      detail: "No results found",
+      data: {
+        kind: "search",
+        rawOutput: {
+          totalFiles: 0,
+          content: "No results found",
+        },
+      },
+    });
+
+    const matches = mapAntigravityTranscriptRecordToRuntimeEvents({
+      ...base,
+      record: {
+        step_index: 109,
+        source: "MODEL",
+        type: "GREP_SEARCH",
+        status: "DONE",
+        content: [
+          "Created At: 2026-07-03T00:05:25-05:00",
+          "Completed At: 2026-07-03T00:05:25-05:00",
+          '{"File":"/repo/a.ts"}',
+          '{"File":"/repo/b.ts","LineNumber":4,"LineContent":"const value = true;"}',
+        ].join("\n"),
+      },
+    });
+    expect(matches.map((event) => event.type)).toEqual(["item.completed"]);
+    expect(matches[0]?.payload).toMatchObject({
+      itemType: "dynamic_tool_call",
+      title: "Searched files",
+      detail: "2 files",
+      data: {
+        kind: "search",
+        rawOutput: {
+          totalFiles: 2,
+        },
+      },
+    });
+
+    const viewFile = mapAntigravityTranscriptRecordToRuntimeEvents({
+      ...base,
+      record: {
+        step_index: 117,
+        source: "MODEL",
+        type: "VIEW_FILE",
+        status: "DONE",
+        content:
+          "Created At: 2026-07-03T00:05:32-05:00\nCompleted At: 2026-07-03T00:05:32-05:00\nFile Path: `file:///repo/app.ts`\nconst value = true;",
+      },
+    });
+    expect(viewFile.map((event) => event.type)).toEqual(["item.completed"]);
+    expect(viewFile[0]?.payload).toMatchObject({
+      itemType: "dynamic_tool_call",
+      title: "Read file",
+      detail: "/repo/app.ts",
+      data: {
+        kind: "read",
+        path: "/repo/app.ts",
+        rawOutput: {
+          content: expect.stringContaining("const value = true;"),
+        },
+      },
+    });
+  });
+
+  it("maps checkpoint and code action records as file-change work rows", () => {
+    const base = {
+      threadId: ThreadId.make("thread-1"),
+      instanceId: ProviderInstanceId.make("antigravity"),
+      turnId: TurnId.make("turn-1"),
+      createdAt: "2026-05-29T00:00:00.000Z",
+    };
+
+    const checkpoint = mapAntigravityTranscriptRecordToRuntimeEvents({
+      ...base,
+      record: {
+        step_index: 20,
+        source: "MODEL",
+        type: "CHECKPOINT",
+        status: "DONE",
+        content:
+          "Created At: 2026-07-03T00:05:22-05:00\nCompleted At: 2026-07-03T00:05:22-05:00\nFiles staged successfully\nStaged changes:\ndiff --git a/apps/web/src/a.ts b/apps/web/src/a.ts",
+      },
+    });
+    expect(checkpoint.map((event) => event.type)).toEqual(["item.completed"]);
+    expect(checkpoint[0]?.payload).toMatchObject({
+      itemType: "file_change",
+      title: "Checkpoint captured",
+      detail: "Files staged successfully",
+      data: {
+        kind: "checkpoint",
+        changes: [{ path: "apps/web/src/a.ts" }],
+      },
+    });
+
+    const codeAction = mapAntigravityTranscriptRecordToRuntimeEvents({
+      ...base,
+      record: {
+        step_index: 21,
+        source: "MODEL",
+        type: "CODE_ACTION",
+        status: "DONE",
+        content:
+          "Created At: 2026-07-03T00:05:22-05:00\nCompleted At: 2026-07-03T00:05:22-05:00\nThe following changes were made by the replace_file_content tool to: /repo/app.ts.",
+      },
+    });
+    expect(codeAction.map((event) => event.type)).toEqual(["item.completed"]);
+    expect(codeAction[0]?.payload).toMatchObject({
+      itemType: "file_change",
+      title: "Edited file",
+      detail: "/repo/app.ts",
+      data: {
+        kind: "edit",
+        path: "/repo/app.ts",
+        changes: [{ path: "/repo/app.ts" }],
+      },
+    });
+  });
+
+  it("maps tool calls as lifecycle metadata without assistant text", () => {
+    const base = {
+      threadId: ThreadId.make("thread-1"),
+      instanceId: ProviderInstanceId.make("antigravity"),
+      turnId: TurnId.make("turn-1"),
+      createdAt: "2026-05-29T00:00:00.000Z",
+    };
+
+    const events = mapAntigravityTranscriptRecordToRuntimeEvents({
+      ...base,
+      record: {
+        step_index: 7,
+        source: "MODEL",
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        tool_calls: [
+          {
+            name: "write_to_file",
+            args: { TargetFile: '"/tmp/a.ts"', toolSummary: '"Write file"' },
+          },
+        ],
+      },
+    });
+    expect(events.map((event) => event.type)).toEqual(["item.completed"]);
+    expect(events[0]?.payload).toMatchObject({
+      itemType: "dynamic_tool_call",
+      title: "Write file",
+      detail: "/tmp/a.ts",
+      data: {
+        kind: "write_to_file",
+        path: "/tmp/a.ts",
+        changes: [{ path: "/tmp/a.ts" }],
+      },
+    });
+  });
+
+  it("maps final response prose and system errors", () => {
+    const base = {
+      threadId: ThreadId.make("thread-1"),
+      instanceId: ProviderInstanceId.make("antigravity"),
+      turnId: TurnId.make("turn-1"),
+      createdAt: "2026-05-29T00:00:00.000Z",
+    };
+
+    const finalResponse = mapAntigravityTranscriptRecordToRuntimeEvents({
+      ...base,
+      record: {
+        step_index: 12,
+        created_at: "2026-05-29T00:00:01.000Z",
+        source: "MODEL",
+        type: "FINAL_RESPONSE",
+        status: "DONE",
+        content: "Done.",
+      },
+    });
+    expect(finalResponse.map((event) => event.type)).toEqual(["content.delta", "turn.completed"]);
+    expect(finalResponse[0]?.createdAt).toBe("2026-05-29T00:00:01.000Z");
+    expect(finalResponse[0]?.payload).toMatchObject({
+      streamKind: "assistant_text",
+      delta: "Done.",
+    });
 
     expect(
       mapAntigravityTranscriptRecordToRuntimeEvents({
         ...base,
         record: {
-          step_index: 7,
+          step_index: 13,
           source: "MODEL",
           type: "PLANNER_RESPONSE",
           status: "DONE",
-          tool_calls: [{ name: "write_to_file", args: { TargetFile: "/tmp/a.ts" } }],
-        },
-      })[0]?.payload,
-    ).toMatchObject({ itemType: "dynamic_tool_call", title: "Write file" });
-
-    expect(
-      mapAntigravityTranscriptRecordToRuntimeEvents({
-        ...base,
-        record: {
-          step_index: 3,
-          source: "MODEL",
-          type: "LIST_DIRECTORY",
-          status: "DONE",
-          content: '{"name":"package.json"}',
-        },
-      })[0]?.payload,
-    ).toMatchObject({ itemType: "dynamic_tool_call", title: "Listed directory" });
-
-    expect(
-      mapAntigravityTranscriptRecordToRuntimeEvents({
-        ...base,
-        record: {
-          step_index: 12,
-          source: "MODEL",
-          type: "FINAL_RESPONSE",
-          status: "DONE",
-          content: "Done.",
+          content: "No tools to call. Waiting for typecheck task to finish.",
         },
       }).map((event) => event.type),
-    ).toEqual(["content.delta", "turn.completed"]);
+    ).toEqual([]);
 
     expect(
       mapAntigravityTranscriptRecordToRuntimeEvents({

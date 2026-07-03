@@ -849,6 +849,50 @@ describe("ProviderRuntimeIngestion", () => {
     expect(payload?.detail).toBe("bun run lint");
   });
 
+  it("preserves failed completed tool lifecycle status on projected activities", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-failed-completed"),
+      provider: ProviderDriverKind.make("antigravity"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-failed-completed"),
+      itemId: asItemId("item-command-failed-completed"),
+      payload: {
+        itemType: "command_execution",
+        status: "failed",
+        title: "Ran command",
+        data: {
+          toolCallId: "tool-command-failed-1",
+          kind: "execute",
+          rawOutput: {
+            exitCode: 127,
+            stdout: "command not found",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-command-failed-completed",
+      ),
+    );
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-command-failed-completed",
+    );
+    const payload =
+      activity?.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : undefined;
+
+    expect(activity?.kind).toBe("tool.completed");
+    expect(payload?.status).toBe("failed");
+  });
+
   it("uses structured read-file paths when available", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
