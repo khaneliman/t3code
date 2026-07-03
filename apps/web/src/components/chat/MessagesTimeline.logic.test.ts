@@ -384,6 +384,7 @@ describe("deriveMessagesTimelineRows", () => {
       assistantMessageId: "assistant-1" as never,
       checkpointTurnCount: 2,
       checkpointRef: "checkpoint-1" as never,
+      diffFromCheckpointRef: null,
       status: "ready" as const,
       files: [{ path: "src/index.ts", kind: "modified", additions: 3, deletions: 1 }],
     };

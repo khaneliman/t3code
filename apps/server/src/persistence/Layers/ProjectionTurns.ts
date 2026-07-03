@@ -60,6 +60,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           completed_at,
           checkpoint_turn_count,
           checkpoint_ref,
+          checkpoint_diff_from_ref,
           checkpoint_status,
           checkpoint_files_json
         )
@@ -76,6 +77,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           ${row.completedAt},
           ${row.checkpointTurnCount},
           ${row.checkpointRef},
+          ${row.diffFromCheckpointRef},
           ${row.checkpointStatus},
           ${row.checkpointFiles}
         )
@@ -91,6 +93,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           completed_at = excluded.completed_at,
           checkpoint_turn_count = excluded.checkpoint_turn_count,
           checkpoint_ref = excluded.checkpoint_ref,
+          checkpoint_diff_from_ref = excluded.checkpoint_diff_from_ref,
           checkpoint_status = excluded.checkpoint_status,
           checkpoint_files_json = excluded.checkpoint_files_json
       `,
@@ -125,6 +128,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           completed_at,
           checkpoint_turn_count,
           checkpoint_ref,
+          checkpoint_diff_from_ref,
           checkpoint_status,
           checkpoint_files_json
         )
@@ -137,6 +141,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           NULL,
           'pending',
           ${row.requestedAt},
+          NULL,
           NULL,
           NULL,
           NULL,
@@ -187,6 +192,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           completed_at AS "completedAt",
           checkpoint_turn_count AS "checkpointTurnCount",
           checkpoint_ref AS "checkpointRef",
+          checkpoint_diff_from_ref AS "diffFromCheckpointRef",
           checkpoint_status AS "checkpointStatus",
           checkpoint_files_json AS "checkpointFiles"
         FROM projection_turns
@@ -220,6 +226,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           completed_at AS "completedAt",
           checkpoint_turn_count AS "checkpointTurnCount",
           checkpoint_ref AS "checkpointRef",
+          checkpoint_diff_from_ref AS "diffFromCheckpointRef",
           checkpoint_status AS "checkpointStatus",
           checkpoint_files_json AS "checkpointFiles"
         FROM projection_turns
@@ -237,6 +244,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
         SET
           checkpoint_turn_count = NULL,
           checkpoint_ref = NULL,
+          checkpoint_diff_from_ref = NULL,
           checkpoint_status = NULL,
           checkpoint_files_json = '[]'
         WHERE thread_id = ${threadId}

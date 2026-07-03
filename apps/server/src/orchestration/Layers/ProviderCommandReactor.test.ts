@@ -32,6 +32,7 @@ import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
+import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import { TextGenerationError } from "@t3tools/contracts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
@@ -348,6 +349,17 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
+      Layer.provideMerge(
+        Layer.succeed(CheckpointStore.CheckpointStore, {
+          isGitRepository: () => Effect.succeed(false),
+          captureCheckpoint: () => Effect.void,
+          hasCheckpointRef: () => Effect.succeed(false),
+          restoreCheckpoint: () => Effect.succeed(false),
+          copyCheckpointRef: () => Effect.void,
+          diffCheckpoints: () => Effect.succeed(""),
+          deleteCheckpointRefs: () => Effect.void,
+        }),
+      ),
       Layer.provideMerge(makeProviderRegistryLayer(providerSnapshots as never)),
       Layer.provideMerge(
         Layer.mock(GitWorkflowService.GitWorkflowService)({

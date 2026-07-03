@@ -23,6 +23,7 @@ function makeCheckpoint(
 ): OrchestrationCheckpointSummary {
   return {
     checkpointRef: `refs/t3/checkpoints/thread/${input.checkpointTurnCount}` as any,
+    diffFromCheckpointRef: null,
     status: "ready",
     files: [],
     assistantMessageId: MessageId.make(`msg-${input.checkpointTurnCount}`),

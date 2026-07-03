@@ -18,8 +18,8 @@ import {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -28,6 +28,9 @@ export const ProjectionCheckpoint = Schema.Struct({
   turnId: TurnId,
   checkpointTurnCount: NonNegativeInt,
   checkpointRef: CheckpointRef,
+  diffFromCheckpointRef: Schema.NullOr(CheckpointRef).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   status: OrchestrationCheckpointStatus,
   files: Schema.Array(OrchestrationCheckpointFile),
   assistantMessageId: Schema.NullOr(MessageId),

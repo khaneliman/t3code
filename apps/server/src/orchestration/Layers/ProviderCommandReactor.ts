@@ -25,7 +25,11 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
-import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import {
+  checkpointPendingStartRefForThreadTurnCount,
+  resolveThreadWorkspaceCwd,
+} from "../../checkpointing/Utils.ts";
+import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
@@ -192,6 +196,7 @@ const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const providerRegistry = yield* ProviderRegistry;
+  const checkpointStore = yield* CheckpointStore.CheckpointStore;
   const gitWorkflow = yield* GitWorkflowService;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
@@ -315,6 +320,38 @@ const make = Effect.gen(function* () {
     return yield* projectionSnapshotQuery
       .getThreadDetailById(threadId)
       .pipe(Effect.map(Option.getOrUndefined));
+  });
+
+  const capturePendingTurnStartCheckpoint = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly projectId: ProjectId;
+    readonly worktreePath: string | null;
+    readonly checkpoints: ReadonlyArray<{ readonly checkpointTurnCount: number }>;
+  }) {
+    const project = yield* resolveProject(input.projectId);
+    const cwd = resolveThreadWorkspaceCwd({
+      thread: input,
+      projects: project ? [project] : [],
+    });
+    if (!cwd) {
+      return;
+    }
+
+    const isGitRepository = yield* checkpointStore.isGitRepository(cwd);
+    if (!isGitRepository) {
+      return;
+    }
+
+    const nextTurnCount =
+      input.checkpoints.reduce(
+        (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
+        0,
+      ) + 1;
+
+    yield* checkpointStore.captureCheckpoint({
+      cwd,
+      checkpointRef: checkpointPendingStartRefForThreadTurnCount(input.threadId, nextTurnCount),
+    });
   });
 
   const rejectStartedThreadModelChangeIfRequired = Effect.fnUntraced(function* (input: {
@@ -854,6 +891,20 @@ const make = Effect.gen(function* () {
     if (Option.isNone(sendTurnRequest)) {
       return;
     }
+
+    yield* capturePendingTurnStartCheckpoint({
+      threadId: thread.id,
+      projectId: thread.projectId,
+      worktreePath: thread.worktreePath,
+      checkpoints: thread.checkpoints,
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("failed to capture pending turn-start checkpoint", {
+          threadId: event.payload.threadId,
+          detail: error.message,
+        }),
+      ),
+    );
 
     yield* providerService
       .sendTurn(sendTurnRequest.value)

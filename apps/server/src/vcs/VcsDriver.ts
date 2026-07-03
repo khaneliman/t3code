@@ -25,6 +25,12 @@ export interface VcsRestoreCheckpointInput {
   readonly fallbackToHead?: boolean;
 }
 
+export interface VcsCopyCheckpointRefInput {
+  readonly cwd: string;
+  readonly fromCheckpointRef: CheckpointRef;
+  readonly toCheckpointRef: CheckpointRef;
+}
+
 export interface VcsDiffCheckpointsInput {
   readonly cwd: string;
   readonly fromCheckpointRef: CheckpointRef;
@@ -46,6 +52,7 @@ export interface VcsCheckpointOps {
   readonly restoreCheckpoint: (
     input: VcsRestoreCheckpointInput,
   ) => Effect.Effect<boolean, VcsError>;
+  readonly copyCheckpointRef: (input: VcsCopyCheckpointRefInput) => Effect.Effect<void, VcsError>;
   readonly diffCheckpoints: (input: VcsDiffCheckpointsInput) => Effect.Effect<string, VcsError>;
   readonly deleteCheckpointRefs: (
     input: VcsDeleteCheckpointRefsInput,

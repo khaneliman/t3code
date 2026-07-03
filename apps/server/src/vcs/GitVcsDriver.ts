@@ -770,6 +770,26 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       return true;
     }),
 
+    copyCheckpointRef: Effect.fn("GitVcsDriver.checkpoints.copyCheckpointRef")(function* (input) {
+      const operation = "GitVcsDriver.checkpoints.copyCheckpointRef";
+      const commitOid = yield* resolveCheckpointCommit(input.cwd, input.fromCheckpointRef);
+      if (!commitOid) {
+        return yield* new VcsProcessExitError({
+          operation,
+          command: "git update-ref",
+          cwd: input.cwd,
+          exitCode: 1,
+          detail: `Source checkpoint ref '${input.fromCheckpointRef}' is unavailable.`,
+        });
+      }
+
+      yield* execute({
+        operation,
+        cwd: input.cwd,
+        args: ["update-ref", input.toCheckpointRef, commitOid],
+      });
+    }),
+
     diffCheckpoints: Effect.fn("GitVcsDriver.checkpoints.diffCheckpoints")(function* (input) {
       const operation = "GitVcsDriver.checkpoints.diffCheckpoints";
       yield* Effect.annotateCurrentSpan({

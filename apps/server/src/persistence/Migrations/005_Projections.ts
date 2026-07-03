@@ -84,6 +84,7 @@ export default Effect.gen(function* () {
       completed_at TEXT,
       checkpoint_turn_count INTEGER,
       checkpoint_ref TEXT,
+      checkpoint_diff_from_ref TEXT,
       checkpoint_status TEXT,
       checkpoint_files_json TEXT NOT NULL,
       UNIQUE (thread_id, turn_id),

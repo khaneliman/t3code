@@ -20,7 +20,7 @@ import {
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Context from "effect/Context";
-import type * as Effect from "effect/Effect";
+import * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -46,6 +46,9 @@ export const ProjectionTurn = Schema.Struct({
   completedAt: Schema.NullOr(IsoDateTime),
   checkpointTurnCount: Schema.NullOr(NonNegativeInt),
   checkpointRef: Schema.NullOr(CheckpointRef),
+  diffFromCheckpointRef: Schema.NullOr(CheckpointRef).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   checkpointStatus: Schema.NullOr(OrchestrationCheckpointStatus),
   checkpointFiles: Schema.Array(OrchestrationCheckpointFile),
 });
@@ -64,6 +67,9 @@ export const ProjectionTurnById = Schema.Struct({
   completedAt: Schema.NullOr(IsoDateTime),
   checkpointTurnCount: Schema.NullOr(NonNegativeInt),
   checkpointRef: Schema.NullOr(CheckpointRef),
+  diffFromCheckpointRef: Schema.NullOr(CheckpointRef).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   checkpointStatus: Schema.NullOr(OrchestrationCheckpointStatus),
   checkpointFiles: Schema.Array(OrchestrationCheckpointFile),
 });

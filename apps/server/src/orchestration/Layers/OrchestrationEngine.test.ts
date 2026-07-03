@@ -626,6 +626,7 @@ describe("OrchestrationEngine", () => {
         turnId: asTurnId("turn-1"),
         checkpointTurnCount: 1,
         checkpointRef: asCheckpointRef("refs/t3/checkpoints/thread-turn-diff/turn/1"),
+        diffFromCheckpointRef: null,
         status: "ready",
         files: [],
         assistantMessageId: null,

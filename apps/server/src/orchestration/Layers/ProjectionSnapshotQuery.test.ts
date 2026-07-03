@@ -214,6 +214,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           completed_at,
           checkpoint_turn_count,
           checkpoint_ref,
+          checkpoint_diff_from_ref,
           checkpoint_status,
           checkpoint_files_json
         )
@@ -230,6 +231,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-02-24T00:00:08.000Z',
           1,
           'checkpoint-1',
+          'checkpoint-start-1',
           'ready',
           '[{"path":"README.md","kind":"modified","additions":2,"deletions":1}]'
         )
@@ -347,6 +349,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               turnId: asTurnId("turn-1"),
               checkpointTurnCount: 1,
               checkpointRef: asCheckpointRef("checkpoint-1"),
+              diffFromCheckpointRef: asCheckpointRef("checkpoint-start-1"),
               status: "ready",
               files: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
               assistantMessageId: asMessageId("message-1"),
@@ -828,6 +831,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               turnId: asTurnId("turn-1"),
               checkpointTurnCount: 1,
               checkpointRef: asCheckpointRef("checkpoint-a"),
+              diffFromCheckpointRef: null,
               status: "ready",
               files: [],
               assistantMessageId: null,
@@ -837,6 +841,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               turnId: asTurnId("turn-2"),
               checkpointTurnCount: 2,
               checkpointRef: asCheckpointRef("checkpoint-b"),
+              diffFromCheckpointRef: null,
               status: "ready",
               files: [],
               assistantMessageId: null,

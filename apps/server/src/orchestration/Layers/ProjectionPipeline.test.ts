@@ -803,6 +803,7 @@ it.layer(
           turnId: TurnId.make("turn-keep"),
           checkpointTurnCount: 1,
           checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-revert-files/turn/1"),
+          diffFromCheckpointRef: null,
           status: "ready",
           files: [],
           assistantMessageId: MessageId.make("message-keep"),
@@ -856,6 +857,7 @@ it.layer(
           turnId: TurnId.make("turn-remove"),
           checkpointTurnCount: 2,
           checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-revert-files/turn/2"),
+          diffFromCheckpointRef: null,
           status: "ready",
           files: [],
           assistantMessageId: MessageId.make("message-remove"),
@@ -1701,6 +1703,9 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
             turnId: TurnId.make("turn-completed"),
             checkpointTurnCount: 1,
             checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-conflict/turn/1"),
+            diffFromCheckpointRef: CheckpointRef.make(
+              "refs/t3/checkpoints/thread-conflict/turn-start/turn-completed",
+            ),
             status: "ready",
             files: [],
             assistantMessageId: MessageId.make("assistant-conflict"),
@@ -1711,11 +1716,13 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         const turnRows = yield* sql<{
           readonly turnId: string;
           readonly checkpointTurnCount: number | null;
+          readonly diffFromCheckpointRef: string | null;
           readonly status: string;
         }>`
         SELECT
           turn_id AS "turnId",
           checkpoint_turn_count AS "checkpointTurnCount",
+          checkpoint_diff_from_ref AS "diffFromCheckpointRef",
           state AS "status"
         FROM projection_turns
         WHERE thread_id = 'thread-conflict'
@@ -1728,8 +1735,18 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           requested_at ASC
       `;
         assert.deepEqual(turnRows, [
-          { turnId: "turn-completed", checkpointTurnCount: 1, status: "completed" },
-          { turnId: "turn-interrupted", checkpointTurnCount: null, status: "interrupted" },
+          {
+            turnId: "turn-completed",
+            checkpointTurnCount: 1,
+            diffFromCheckpointRef: "refs/t3/checkpoints/thread-conflict/turn-start/turn-completed",
+            status: "completed",
+          },
+          {
+            turnId: "turn-interrupted",
+            checkpointTurnCount: null,
+            diffFromCheckpointRef: null,
+            status: "interrupted",
+          },
         ]);
       }),
   );
@@ -2265,6 +2282,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           turnId: TurnId.make("turn-1"),
           checkpointTurnCount: 1,
           checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-revert/turn/1"),
+          diffFromCheckpointRef: null,
           status: "ready",
           files: [],
           assistantMessageId: MessageId.make("assistant-keep"),
@@ -2309,6 +2327,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           turnId: TurnId.make("turn-2"),
           checkpointTurnCount: 2,
           checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-revert/turn/2"),
+          diffFromCheckpointRef: null,
           status: "ready",
           files: [],
           assistantMessageId: MessageId.make("assistant-remove"),

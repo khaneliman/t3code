@@ -555,6 +555,7 @@ export function projectEvent(
             turnId: payload.turnId,
             checkpointTurnCount: payload.checkpointTurnCount,
             checkpointRef: payload.checkpointRef,
+            diffFromCheckpointRef: payload.diffFromCheckpointRef,
             status: payload.status,
             files: payload.files,
             assistantMessageId: payload.assistantMessageId,

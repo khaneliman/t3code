@@ -33,6 +33,12 @@ export interface RestoreCheckpointInput {
   readonly fallbackToHead?: boolean;
 }
 
+export interface CopyCheckpointRefInput {
+  readonly cwd: string;
+  readonly fromCheckpointRef: CheckpointRef;
+  readonly toCheckpointRef: CheckpointRef;
+}
+
 export interface DiffCheckpointsInput {
   readonly cwd: string;
   readonly fromCheckpointRef: CheckpointRef;
@@ -75,6 +81,11 @@ export class CheckpointStore extends Context.Service<
     readonly restoreCheckpoint: (
       input: RestoreCheckpointInput,
     ) => Effect.Effect<boolean, CheckpointStoreError>;
+
+    /** Copy one checkpoint ref to another without reading current workspace state. */
+    readonly copyCheckpointRef: (
+      input: CopyCheckpointRefInput,
+    ) => Effect.Effect<void, CheckpointStoreError>;
 
     /**
      * Compute a patch diff between two checkpoint refs.
@@ -140,6 +151,13 @@ export const make = Effect.gen(function* () {
     return yield* checkpoints.restoreCheckpoint(input);
   });
 
+  const copyCheckpointRef: CheckpointStore["Service"]["copyCheckpointRef"] = Effect.fn(
+    "copyCheckpointRef",
+  )(function* (input) {
+    const checkpoints = yield* resolveCheckpoints("CheckpointStore.copyCheckpointRef", input.cwd);
+    return yield* checkpoints.copyCheckpointRef(input);
+  });
+
   const diffCheckpoints: CheckpointStore["Service"]["diffCheckpoints"] = Effect.fn(
     "diffCheckpoints",
   )(function* (input) {
@@ -162,6 +180,7 @@ export const make = Effect.gen(function* () {
     captureCheckpoint,
     hasCheckpointRef,
     restoreCheckpoint,
+    copyCheckpointRef,
     diffCheckpoints,
     deleteCheckpointRefs,
   });

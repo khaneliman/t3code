@@ -1,11 +1,26 @@
 import * as Encoding from "effect/Encoding";
-import { CheckpointRef, ProjectId, type ThreadId } from "@t3tools/contracts";
+import { CheckpointRef, ProjectId, type ThreadId, type TurnId } from "@t3tools/contracts";
 
 export const CHECKPOINT_REFS_PREFIX = "refs/t3/checkpoints";
 
 export function checkpointRefForThreadTurn(threadId: ThreadId, turnCount: number): CheckpointRef {
   return CheckpointRef.make(
     `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/turn/${turnCount}`,
+  );
+}
+
+export function checkpointStartRefForThreadTurn(threadId: ThreadId, turnId: TurnId): CheckpointRef {
+  return CheckpointRef.make(
+    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/turn-start/${Encoding.encodeBase64Url(turnId)}`,
+  );
+}
+
+export function checkpointPendingStartRefForThreadTurnCount(
+  threadId: ThreadId,
+  turnCount: number,
+): CheckpointRef {
+  return CheckpointRef.make(
+    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/turn-start-pending/${turnCount}`,
   );
 }
 

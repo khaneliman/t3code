@@ -100,6 +100,7 @@ describe("deriveOrchestrationBatchEffects", () => {
         turnId: TurnId.make("turn-1"),
         checkpointTurnCount: 1,
         checkpointRef: CheckpointRef.make("checkpoint-1"),
+        diffFromCheckpointRef: null,
         status: "ready",
         files: [],
         assistantMessageId: MessageId.make("assistant-1"),
