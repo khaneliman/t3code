@@ -21,9 +21,11 @@ import { normalizeModelSlug } from "@t3tools/shared/model";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -54,6 +56,7 @@ const BENIGN_ERROR_LOG_SNIPPETS = [
   "state db record_discrepancy: find_thread_path_by_id_str_in_subdir, falling_back",
 ];
 const CODEX_APP_SERVER_FORCE_KILL_AFTER = "2 seconds" as const;
+const CODEX_APP_SERVER_START_TIMEOUT = Duration.seconds(60);
 const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "not found",
   "missing thread",
@@ -159,7 +162,8 @@ export type CodexSessionRuntimeError =
   | CodexSessionRuntimePendingApprovalNotFoundError
   | CodexSessionRuntimePendingUserInputNotFoundError
   | CodexSessionRuntimeInvalidUserInputAnswersError
-  | CodexSessionRuntimeThreadIdMissingError;
+  | CodexSessionRuntimeThreadIdMissingError
+  | CodexSessionRuntimeStartTimeoutError;
 
 export class CodexSessionRuntimePendingApprovalNotFoundError extends Schema.TaggedErrorClass<CodexSessionRuntimePendingApprovalNotFoundError>()(
   "CodexSessionRuntimePendingApprovalNotFoundError",
@@ -202,6 +206,17 @@ export class CodexSessionRuntimeThreadIdMissingError extends Schema.TaggedErrorC
 ) {
   override get message(): string {
     return `Codex session is missing a provider thread id for ${this.threadId}`;
+  }
+}
+
+export class CodexSessionRuntimeStartTimeoutError extends Schema.TaggedErrorClass<CodexSessionRuntimeStartTimeoutError>()(
+  "CodexSessionRuntimeStartTimeoutError",
+  {
+    threadId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Codex session start timed out after ${Duration.format(CODEX_APP_SERVER_START_TIMEOUT)} for thread ${this.threadId}`;
   }
 }
 
@@ -1199,20 +1214,34 @@ export const makeCodexSessionRuntime = (
 
     const start = Effect.fn("CodexSessionRuntime.start")(function* () {
       yield* emitSessionEvent("session/connecting", "Starting Codex App Server session.");
-      yield* client.request("initialize", buildCodexInitializeParams());
-      yield* client.notify("initialized", undefined);
 
-      const requestedModel = normalizeCodexModelSlug(options.model);
+      const opened = yield* Effect.gen(function* () {
+        yield* client.request("initialize", buildCodexInitializeParams());
+        yield* client.notify("initialized", undefined);
 
-      const opened = yield* openCodexThread({
-        client,
-        threadId: options.threadId,
-        runtimeMode: options.runtimeMode,
-        cwd: options.cwd,
-        requestedModel,
-        serviceTier: options.serviceTier,
-        resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
-      });
+        const requestedModel = normalizeCodexModelSlug(options.model);
+
+        return yield* openCodexThread({
+          client,
+          threadId: options.threadId,
+          runtimeMode: options.runtimeMode,
+          cwd: options.cwd,
+          requestedModel,
+          serviceTier: options.serviceTier,
+          resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
+        });
+      }).pipe(
+        Effect.timeoutOption(CODEX_APP_SERVER_START_TIMEOUT),
+        Effect.flatMap((result) =>
+          Option.match(result, {
+            onNone: () =>
+              Effect.fail(
+                new CodexSessionRuntimeStartTimeoutError({ threadId: options.threadId }),
+              ),
+            onSome: Effect.succeed,
+          }),
+        ),
+      );
 
       const providerThreadId = opened.thread.id;
       const session = {
