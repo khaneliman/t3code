@@ -1028,7 +1028,22 @@ const make = Effect.gen(function* () {
         return;
       }
       case "thread.turn-start-requested":
-        yield* processTurnStartRequested(event);
+        // Forked so a slow/hung provider session start (e.g. an unresponsive
+        // Codex app-server handshake) can't stall the shared worker queue
+        // and block turn-start/interrupt/approval processing for every
+        // other thread.
+        yield* processTurnStartRequested(event).pipe(
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterruptsOnly(cause)) {
+              return Effect.void;
+            }
+            return Effect.logWarning("provider command reactor failed to process event", {
+              eventType: event.type,
+              cause: Cause.pretty(cause),
+            });
+          }),
+          Effect.forkScoped,
+        );
         return;
       case "thread.turn-interrupt-requested":
         yield* processTurnInterruptRequested(event);
