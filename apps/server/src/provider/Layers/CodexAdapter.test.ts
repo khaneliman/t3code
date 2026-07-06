@@ -40,6 +40,7 @@ import { ProviderAdapterValidationError } from "../Errors.ts";
 import type { CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import {
+  CodexSessionRuntimeTurnStallError,
   type CodexSessionRuntimeOptions,
   type CodexSessionRuntimeSendTurnInput,
   type CodexSessionRuntimeShape,
@@ -1171,6 +1172,83 @@ scopedFailureLayer("CodexAdapterLive scoped startup failure", (it) => {
       ]);
       NodeAssert.equal(yield* adapter.hasSession(asThreadId("thread-fail")), false);
     }),
+  );
+});
+
+const scopedTurnStallRuntimeFactory = makeScopedRuntimeFactory();
+const scopedTurnStallLayer = it.layer(
+  Layer.effect(
+    CodexAdapter,
+    Effect.gen(function* () {
+      const codexConfig = decodeCodexSettings({});
+      return yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: scopedTurnStallRuntimeFactory.factory,
+      });
+    }),
+  ).pipe(
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(NodeServices.layer),
+  ),
+);
+
+scopedTurnStallLayer("CodexAdapterLive turn stall recovery", (it) => {
+  it.effect(
+    "tears down the wedged session on a turn stall and allows a fresh retry",
+    () =>
+      Effect.gen(function* () {
+        scopedTurnStallRuntimeFactory.releasedThreadIds.length = 0;
+        const adapter = yield* CodexAdapter;
+        const threadId = asThreadId("thread-stalled-turn");
+
+        yield* adapter.startSession({
+          provider: ProviderDriverKind.make("codex"),
+          threadId,
+          runtimeMode: "full-access",
+        });
+
+        const stalledRuntime = scopedTurnStallRuntimeFactory.lastRuntime;
+        NodeAssert.ok(stalledRuntime);
+        // `sendTurnImpl` is promise-based (`Effect.promise` assumes it never
+        // rejects), so a typed `CodexSessionRuntimeTurnStallError` has to be
+        // simulated by overriding `sendTurn` itself rather than the promise.
+        stalledRuntime.sendTurn = ((_input: CodexSessionRuntimeSendTurnInput) =>
+          Effect.fail(
+            new CodexSessionRuntimeTurnStallError({
+              threadId,
+              stalledMcpServers: ["semble", "codex_apps"],
+            }),
+          )) as unknown as (typeof stalledRuntime)["sendTurn"];
+
+        const result = yield* adapter
+          .sendTurn({ threadId, input: "hello", attachments: [] })
+          .pipe(Effect.result);
+
+        NodeAssert.equal(result._tag, "Failure");
+        NodeAssert.equal(result.failure._tag, "ProviderAdapterRequestError");
+        NodeAssert.match(result.failure.detail, /semble, codex_apps/);
+
+        // The wedged runtime must actually be torn down — otherwise a stuck
+        // Codex app-server process leaks, and `ensureSessionForThread` would
+        // keep finding this dead session and never start a fresh one.
+        NodeAssert.equal(stalledRuntime.closeImpl.mock.calls.length, 1);
+        NodeAssert.deepStrictEqual(scopedTurnStallRuntimeFactory.releasedThreadIds, [threadId]);
+        NodeAssert.equal(yield* adapter.hasSession(threadId), false);
+
+        // The thread must be retryable in place: starting a new session for
+        // the same thread id should succeed and create a brand-new runtime
+        // rather than reusing the wedged one.
+        yield* adapter.startSession({
+          provider: ProviderDriverKind.make("codex"),
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const freshRuntime = scopedTurnStallRuntimeFactory.lastRuntime;
+        NodeAssert.ok(freshRuntime);
+        NodeAssert.notEqual(freshRuntime, stalledRuntime);
+        NodeAssert.equal(yield* adapter.hasSession(threadId), true);
+      }),
   );
 });
 

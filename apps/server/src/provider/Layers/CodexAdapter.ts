@@ -55,6 +55,7 @@ import { ServerConfig } from "../../config.ts";
 import {
   CodexResumeCursorSchema,
   CodexSessionRuntimeThreadIdMissingError,
+  CodexSessionRuntimeTurnStallError,
   makeCodexSessionRuntime,
   type CodexSessionRuntimeError,
   type CodexSessionRuntimeOptions,
@@ -66,6 +67,7 @@ const isCodexAppServerTransportError = Schema.is(CodexErrors.CodexAppServerTrans
 const isCodexSessionRuntimeThreadIdMissingError = Schema.is(
   CodexSessionRuntimeThreadIdMissingError,
 );
+const isCodexSessionRuntimeTurnStallError = Schema.is(CodexSessionRuntimeTurnStallError);
 const isCodexResumeCursorSchema = Schema.is(CodexResumeCursorSchema);
 
 const PROVIDER = ProviderDriverKind.make("codex");
@@ -1550,7 +1552,20 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
         ...(codexAttachments.length > 0 ? { attachments: codexAttachments } : {}),
       })
-      .pipe(Effect.mapError((cause) => mapCodexRuntimeError(input.threadId, "turn/start", cause)));
+      .pipe(
+        // A stalled turn means the runtime already killed the wedged Codex
+        // process, but that alone doesn't clear this adapter's own session
+        // bookkeeping (nothing else observes the process dying mid-session).
+        // Without this, `ensureSessionForThread` would keep finding this
+        // dead session in `listSessions()` and never start a fresh one,
+        // leaving the thread permanently unable to retry.
+        Effect.tapError((cause) =>
+          isCodexSessionRuntimeTurnStallError(cause)
+            ? stopSessionInternal(session)
+            : Effect.void,
+        ),
+        Effect.mapError((cause) => mapCodexRuntimeError(input.threadId, "turn/start", cause)),
+      );
   });
 
   const requireSession = Effect.fn("requireSession")(function* (threadId: ThreadId) {

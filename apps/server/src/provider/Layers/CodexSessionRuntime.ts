@@ -57,6 +57,7 @@ const BENIGN_ERROR_LOG_SNIPPETS = [
 ];
 const CODEX_APP_SERVER_FORCE_KILL_AFTER = "2 seconds" as const;
 const CODEX_APP_SERVER_START_TIMEOUT = Duration.seconds(60);
+const CODEX_TURN_ACTIVITY_TIMEOUT = Duration.minutes(3);
 const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "not found",
   "missing thread",
@@ -163,7 +164,8 @@ export type CodexSessionRuntimeError =
   | CodexSessionRuntimePendingUserInputNotFoundError
   | CodexSessionRuntimeInvalidUserInputAnswersError
   | CodexSessionRuntimeThreadIdMissingError
-  | CodexSessionRuntimeStartTimeoutError;
+  | CodexSessionRuntimeStartTimeoutError
+  | CodexSessionRuntimeTurnStallError;
 
 export class CodexSessionRuntimePendingApprovalNotFoundError extends Schema.TaggedErrorClass<CodexSessionRuntimePendingApprovalNotFoundError>()(
   "CodexSessionRuntimePendingApprovalNotFoundError",
@@ -217,6 +219,21 @@ export class CodexSessionRuntimeStartTimeoutError extends Schema.TaggedErrorClas
 ) {
   override get message(): string {
     return `Codex session start timed out after ${Duration.format(CODEX_APP_SERVER_START_TIMEOUT)} for thread ${this.threadId}`;
+  }
+}
+
+export class CodexSessionRuntimeTurnStallError extends Schema.TaggedErrorClass<CodexSessionRuntimeTurnStallError>()(
+  "CodexSessionRuntimeTurnStallError",
+  {
+    threadId: Schema.String,
+    stalledMcpServers: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    const base = `Codex did not start processing the turn within ${Duration.format(CODEX_TURN_ACTIVITY_TIMEOUT)} for thread ${this.threadId}`;
+    return this.stalledMcpServers.length > 0
+      ? `${base} (MCP server(s) never finished starting: ${this.stalledMcpServers.join(", ")})`
+      : base;
   }
 }
 
@@ -724,6 +741,10 @@ export const makeCodexSessionRuntime = (
     const pendingUserInputsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingUserInput>());
     const collabReceiverTurnsRef = yield* Ref.make(new Map<string, TurnId>());
     const closedRef = yield* Ref.make(false);
+    const mcpServerStartupStatusRef = yield* Ref.make(
+      new Map<string, EffectCodexSchema.ServerNotification__McpServerStartupState>(),
+    );
+    const turnActivityWaiterRef = yield* Ref.make<Deferred.Deferred<void> | undefined>(undefined);
 
     // `~` is not shell-expanded when env vars are set via
     // `child_process.spawn`; `expandHomePath` lets a configured
@@ -901,6 +922,19 @@ export const makeCodexSessionRuntime = (
 
     const currentSessionProviderThreadId = Effect.map(Ref.get(sessionRef), currentProviderThreadId);
 
+    const resolveTurnActivityWaiter = Ref.get(turnActivityWaiterRef).pipe(
+      Effect.flatMap((waiter) => (waiter ? Deferred.succeed(waiter, undefined) : Effect.void)),
+      Effect.asVoid,
+    );
+
+    yield* client.handleServerNotification("mcpServer/startupStatus/updated", (payload) =>
+      Ref.update(mcpServerStartupStatusRef, (current) => {
+        const next = new Map(current);
+        next.set(payload.name, payload.status);
+        return next;
+      }),
+    );
+
     yield* client.handleServerNotification("thread/started", (payload) =>
       currentSessionProviderThreadId.pipe(
         Effect.flatMap((providerThreadId) => {
@@ -923,7 +957,7 @@ export const makeCodexSessionRuntime = (
           return updateSession(sessionRef, {
             status: "running",
             activeTurnId: TurnId.make(payload.turn.id),
-          });
+          }).pipe(Effect.andThen(resolveTurnActivityWaiter));
         }),
       ),
     );
@@ -942,7 +976,7 @@ export const makeCodexSessionRuntime = (
             status: payload.turn.status === "failed" ? "error" : "ready",
             activeTurnId: undefined,
             ...(lastError ? { lastError } : {}),
-          });
+          }).pipe(Effect.andThen(resolveTurnActivityWaiter));
         }),
       ),
     );
@@ -959,7 +993,7 @@ export const makeCodexSessionRuntime = (
           return updateSession(sessionRef, {
             status: willRetry ? "running" : "error",
             ...(errorMessage ? { lastError: errorMessage } : {}),
-          });
+          }).pipe(Effect.andThen(resolveTurnActivityWaiter));
         }),
       ),
     );
@@ -1316,6 +1350,11 @@ export const makeCodexSessionRuntime = (
             ...(input.effort ? { effort: input.effort } : {}),
             ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
           });
+          // Registered before the request is sent so a `turn/started` (or
+          // `turn/completed`/`error`) notification can never race ahead of us
+          // and resolve a waiter we haven't stored yet.
+          const turnActivityWaiter = yield* Deferred.make<void>();
+          yield* Ref.set(turnActivityWaiterRef, turnActivityWaiter);
           const rawResponse = yield* client.raw.request("turn/start", params);
           const response = yield* decodeV2TurnStartResponse(rawResponse).pipe(
             Effect.mapError((error) =>
@@ -1332,6 +1371,33 @@ export const makeCodexSessionRuntime = (
             activeTurnId: turnId,
             ...(normalizedModel ? { model: normalizedModel } : {}),
           });
+
+          // Codex acking `turn/start` only means the request was received —
+          // it does not mean Codex has actually begun working on the turn.
+          // That only happens once it emits a `turn/started` notification
+          // (see the handler above), which can stall indefinitely if one of
+          // the thread's MCP servers never finishes starting up. Without
+          // this watchdog, a stalled turn leaves the thread's session stuck
+          // forever with no feedback and, on retry, reuses the same wedged
+          // session instead of starting fresh.
+          const activity = yield* Deferred.await(turnActivityWaiter).pipe(
+            Effect.timeoutOption(CODEX_TURN_ACTIVITY_TIMEOUT),
+          );
+          yield* Ref.update(turnActivityWaiterRef, (current) =>
+            current === turnActivityWaiter ? undefined : current,
+          );
+          if (Option.isNone(activity)) {
+            const mcpServerStatuses = yield* Ref.get(mcpServerStartupStatusRef);
+            const stalledMcpServers = Array.from(mcpServerStatuses.entries())
+              .filter(([, status]) => status === "starting")
+              .map(([name]) => name);
+            yield* close;
+            return yield* new CodexSessionRuntimeTurnStallError({
+              threadId: options.threadId,
+              stalledMcpServers,
+            });
+          }
+
           const resumedProviderThreadId = currentProviderThreadId(yield* Ref.get(sessionRef));
           return {
             threadId: options.threadId,
