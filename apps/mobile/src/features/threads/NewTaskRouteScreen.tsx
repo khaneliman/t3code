@@ -2,7 +2,7 @@ import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/Stac
 import { useIsFocused, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
@@ -15,9 +15,11 @@ import { useProjects } from "../../state/entities";
 import type { WorkspaceState } from "../../state/workspaceModel";
 import { useWorkspaceState } from "../../state/workspace";
 import { scopedProjectKey } from "../../lib/scopedEntities";
+import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { useNewTaskFlow } from "./new-task-flow-provider";
+import { buildEnvironmentLabelResolver, scopeEnvironmentLabel } from "./new-task-project-labels";
 
 type NewTaskRouteParams = {
   readonly incomingShareId?: string | string[];
@@ -82,6 +84,11 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   const projects = useProjects();
   const { projectScopes } = useNewTaskFlow();
   const { state: catalogState } = useWorkspaceState();
+  const { savedConnectionsById } = useSavedRemoteConnections();
+  const resolveEnvironmentLabel = useMemo(
+    () => buildEnvironmentLabelResolver(savedConnectionsById),
+    [savedConnectionsById],
+  );
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const { layout } = useAdaptiveWorkspaceLayout();
@@ -277,6 +284,13 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               const hasMultipleProjects = scope.projects.length > 1;
               const expanded = expandedGroupKeys.has(scope.key);
               const singleProject = hasMultipleProjects ? null : scope.projects[0];
+              // Repository groups merge same-named projects across environments,
+              // so the row needs its environment to stay identifiable.
+              const scopeEnvironment = hasMultipleProjects
+                ? scopeEnvironmentLabel(scope, resolveEnvironmentLabel)
+                : singleProject
+                  ? resolveEnvironmentLabel(singleProject.environmentId)
+                  : null;
               return (
                 <View
                   key={scope.key}
@@ -314,6 +328,14 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           : singleProject?.workspaceRoot}
                       </Text>
                     </View>
+                    {scopeEnvironment ? (
+                      <Text
+                        className="max-w-[38%] text-2xs text-foreground-tertiary"
+                        numberOfLines={1}
+                      >
+                        {scopeEnvironment}
+                      </Text>
+                    ) : null}
                     <SymbolView
                       name={hasMultipleProjects && expanded ? "chevron.down" : "chevron.right"}
                       size={14}
@@ -322,40 +344,51 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                     />
                   </Pressable>
                   {hasMultipleProjects && expanded
-                    ? scope.projects.map((project) => (
-                        <Pressable
-                          key={scopedProjectKey(project.environmentId, project.id)}
-                          disabled={reservedDestinationProject !== null}
-                          onPress={() => void selectProject(project)}
-                          className="flex-row items-center gap-3 border-t border-border-subtle bg-card py-3 pr-4 pl-10"
-                        >
-                          <ProjectFavicon
-                            environmentId={project.environmentId}
-                            faviconPath={project.faviconPath}
-                            size={18}
-                            projectTitle={project.title}
-                            workspaceRoot={project.workspaceRoot}
-                          />
-                          <View className="min-w-0 flex-1">
-                            <Text className="text-sm font-t3-bold text-foreground">
-                              {project.title}
-                            </Text>
-                            <Text
-                              className="text-xs text-foreground-muted"
-                              ellipsizeMode="middle"
-                              numberOfLines={1}
-                            >
-                              {project.workspaceRoot}
-                            </Text>
-                          </View>
-                          <SymbolView
-                            name="chevron.right"
-                            size={14}
-                            tintColor={chevronColor}
-                            type="monochrome"
-                          />
-                        </Pressable>
-                      ))
+                    ? scope.projects.map((project) => {
+                        const projectEnvironment = resolveEnvironmentLabel(project.environmentId);
+                        return (
+                          <Pressable
+                            key={scopedProjectKey(project.environmentId, project.id)}
+                            disabled={reservedDestinationProject !== null}
+                            onPress={() => void selectProject(project)}
+                            className="flex-row items-center gap-3 border-t border-border-subtle bg-card py-3 pr-4 pl-10"
+                          >
+                            <ProjectFavicon
+                              environmentId={project.environmentId}
+                              faviconPath={project.faviconPath}
+                              size={18}
+                              projectTitle={project.title}
+                              workspaceRoot={project.workspaceRoot}
+                            />
+                            <View className="min-w-0 flex-1">
+                              <Text className="text-sm font-t3-bold text-foreground">
+                                {project.title}
+                              </Text>
+                              <Text
+                                className="text-xs text-foreground-muted"
+                                ellipsizeMode="middle"
+                                numberOfLines={1}
+                              >
+                                {project.workspaceRoot}
+                              </Text>
+                            </View>
+                            {projectEnvironment ? (
+                              <Text
+                                className="max-w-[38%] text-2xs text-foreground-tertiary"
+                                numberOfLines={1}
+                              >
+                                {projectEnvironment}
+                              </Text>
+                            ) : null}
+                            <SymbolView
+                              name="chevron.right"
+                              size={14}
+                              tintColor={chevronColor}
+                              type="monochrome"
+                            />
+                          </Pressable>
+                        );
+                      })
                     : null}
                 </View>
               );
