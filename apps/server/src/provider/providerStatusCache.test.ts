@@ -23,6 +23,7 @@ const emptyCapabilities = createModelCapabilities({ optionDescriptors: [] });
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
 const CLAUDE_AGENT_DRIVER = ProviderDriverKind.make("claudeAgent");
 const OPENCODE_DRIVER = ProviderDriverKind.make("opencode");
+const ANTIGRAVITY_DRIVER = ProviderDriverKind.make("antigravity");
 
 const makeProvider = (
   provider: ProviderDriverKind,
@@ -179,6 +180,37 @@ it.layer(NodeServices.layer)("providerStatusCache", (it) => {
         skills: cachedCodex.skills,
         message: cachedCodex.message,
       },
+    );
+  });
+
+  it("drops cached Antigravity models replaced by exact model IDs", () => {
+    const cachedAntigravity = makeProvider(ANTIGRAVITY_DRIVER, {
+      models: [
+        {
+          slug: "Gemini 3.5 Flash (Medium)",
+          name: "Gemini 3.5 Flash",
+          isCustom: false,
+          capabilities: emptyCapabilities,
+        },
+      ],
+    });
+    const fallbackAntigravity = makeProvider(ANTIGRAVITY_DRIVER, {
+      models: [
+        {
+          slug: "gemini-3.5-flash-medium",
+          name: "Gemini 3.5 Flash",
+          isCustom: false,
+          capabilities: emptyCapabilities,
+        },
+      ],
+    });
+
+    assert.deepStrictEqual(
+      hydrateCachedProvider({
+        cachedProvider: cachedAntigravity,
+        fallbackProvider: fallbackAntigravity,
+      }).models,
+      fallbackAntigravity.models,
     );
   });
 

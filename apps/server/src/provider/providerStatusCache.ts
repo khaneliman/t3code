@@ -17,11 +17,23 @@ const decodeProviderStatusCache = Schema.decodeUnknownEffect(
 );
 
 const mergeProviderModels = (
-  fallbackModels: ReadonlyArray<ServerProvider["models"][number]>,
+  fallbackProvider: ServerProvider,
   cachedModels: ReadonlyArray<ServerProvider["models"][number]>,
 ): ReadonlyArray<ServerProvider["models"][number]> => {
+  const fallbackModels = fallbackProvider.models;
   const fallbackSlugs = new Set(fallbackModels.map((model) => model.slug));
-  return [...fallbackModels, ...cachedModels.filter((model) => !fallbackSlugs.has(model.slug))];
+  const fallbackNames =
+    fallbackProvider.driver === "antigravity"
+      ? new Set(fallbackModels.map((model) => model.name))
+      : undefined;
+  return [
+    ...fallbackModels,
+    ...cachedModels.filter(
+      (model) =>
+        !fallbackSlugs.has(model.slug) &&
+        (fallbackNames === undefined || !fallbackNames.has(model.name)),
+    ),
+  ];
 };
 
 export const orderProviderSnapshots = (
@@ -59,7 +71,7 @@ export const hydrateCachedProvider = (input: {
   const { message: _fallbackMessage, ...fallbackWithoutMessage } = input.fallbackProvider;
   const hydratedProvider: ServerProvider = {
     ...fallbackWithoutMessage,
-    models: mergeProviderModels(input.fallbackProvider.models, input.cachedProvider.models),
+    models: mergeProviderModels(input.fallbackProvider, input.cachedProvider.models),
     installed: input.cachedProvider.installed,
     version: input.cachedProvider.version,
     status: input.cachedProvider.status,
