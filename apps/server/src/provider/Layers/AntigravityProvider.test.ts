@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { AntigravitySettings, ProviderInstanceId } from "@t3tools/contracts";
@@ -17,9 +18,8 @@ import {
   parseLinuxTcpListenPortsForInodes,
   resolveAntigravityBrainPath,
   resolveAntigravityBinaryPath,
-  resolveAntigravityCliModelAlias,
   resolveAntigravityHomePath,
-  resolveAntigravityModelLabel,
+  resolveAntigravityModelId,
   resolveAntigravitySettingsPath,
 } from "./AntigravityProvider.ts";
 
@@ -36,28 +36,28 @@ async function makeFakeAgy(script: string): Promise<string> {
 describe("AntigravityProvider model helpers", () => {
   it("groups model labels into base models with reasoning options", () => {
     const models = buildAntigravityProviderModels({
-      labels: [
-        "Gemini 3.5 Flash (Medium)",
-        "Gemini 3.5 Flash (High)",
-        "Gemini 3.5 Flash (Low)",
-        "Gemini 3.1 Pro (Low)",
-        "Gemini 3.1 Pro (High)",
+      models: [
+        { id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
+        { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
+        { id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
+        { id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
+        { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
       ],
     });
 
-    expect(models.map((model) => model.name)).toEqual(["Gemini 3.5 Flash", "Gemini 3.1 Pro"]);
-    const flash = models.find((model) => model.name === "Gemini 3.5 Flash");
-    expect(flash?.slug).toBe("Gemini 3.5 Flash (Medium)");
+    expect(models.map((model) => model.name)).toEqual(["Gemini 3.7 Flash", "Gemini 3.1 Pro"]);
+    const flash = models.find((model) => model.name === "Gemini 3.7 Flash");
+    expect(flash?.slug).toBe("gemini-3.7-flash-medium");
     expect(flash?.capabilities?.optionDescriptors).toEqual([
       {
         id: "reasoningEffort",
         label: "Reasoning",
         type: "select",
-        currentValue: "medium",
+        currentValue: "gemini-3.7-flash-medium",
         options: [
-          { id: "low", label: "Low" },
-          { id: "medium", label: "Medium", isDefault: true },
-          { id: "high", label: "High" },
+          { id: "gemini-3.7-flash-low", label: "Low" },
+          { id: "gemini-3.7-flash-medium", label: "Medium", isDefault: true },
+          { id: "gemini-3.7-flash-high", label: "High" },
         ],
       },
     ]);
@@ -69,28 +69,32 @@ describe("AntigravityProvider model helpers", () => {
       reasoningEffort: "high",
     });
     expect(
-      resolveAntigravityModelLabel({
+      resolveAntigravityModelId({
         instanceId: ProviderInstanceId.make("antigravity"),
         model: "Gemini 3.5 Flash (Medium)",
         options: [{ id: "reasoningEffort", value: "high" }],
       }),
-    ).toBe("Gemini 3.5 Flash (High)");
+    ).toBe("gemini-3.5-flash-high");
     expect(
-      resolveAntigravityCliModelAlias({
+      resolveAntigravityModelId({
         instanceId: ProviderInstanceId.make("antigravity"),
-        model: "Gemini 3.5 Flash (Medium)",
-        options: [{ id: "reasoningEffort", value: "low" }],
+        model: "gemini-3.7-flash-medium",
+        options: [{ id: "reasoningEffort", value: "gemini-3.7-flash-high" }],
       }),
-    ).toBe("flash_lite");
+    ).toBe("gemini-3.7-flash-high");
     expect(
-      resolveAntigravityCliModelAlias({
+      resolveAntigravityModelId({
         instanceId: ProviderInstanceId.make("antigravity"),
         model: "pro",
       }),
-    ).toBe("pro");
-    expect(parseAntigravityModelsOutput("\nGemini 3.5 Flash (Medium)\n\nClaude Sonnet\n")).toEqual([
-      "Gemini 3.5 Flash (Medium)",
-      "Claude Sonnet",
+    ).toBe("gemini-3.1-pro-high");
+    expect(
+      parseAntigravityModelsOutput(
+        "\ngemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)\n\nClaude Sonnet\n",
+      ),
+    ).toEqual([
+      { id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
+      { id: "Claude Sonnet", label: "Claude Sonnet" },
     ]);
   });
 
@@ -155,7 +159,7 @@ describe("AntigravityProvider status probe", () => {
       const binaryPath = yield* Effect.promise(() =>
         makeFakeAgy(`#!/usr/bin/env bash
 if [ "$1" = "--version" ]; then echo "agy 1.0.14"; exit 0; fi
-if [ "$1" = "models" ]; then echo "Gemini 3.5 Flash (Medium)"; exit 0; fi
+if [ "$1" = "models" ]; then printf "gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)\n"; exit 0; fi
 if [ "$1" = "agentapi" ]; then echo "daemon missing" >&2; exit 1; fi
 exit 2
 `),
@@ -168,7 +172,8 @@ exit 2
       expect(snapshot.status).toBe("ready");
       expect(snapshot.installed).toBe(true);
       expect(snapshot.auth.label).toBe("Antigravity CLI");
-      expect(snapshot.models.map((model) => model.slug)).toContain("Gemini 3.5 Flash (Medium)");
+      expect(snapshot.models.map((model) => model.slug)).toContain("gemini-3.7-flash-medium");
+      expect(snapshot.models.map((model) => model.name)).toContain("Gemini 3.7 Flash");
     }),
   );
 
@@ -177,7 +182,7 @@ exit 2
       const binaryPath = yield* Effect.promise(() =>
         makeFakeAgy(`#!/usr/bin/env bash
 if [ "$1" = "--version" ]; then echo "agy 1.0.14"; exit 0; fi
-if [ "$1" = "models" ]; then printf "Gemini 3.5 Flash (Medium)\\nGemini 3.5 Flash (Low)\\n"; exit 0; fi
+if [ "$1" = "models" ]; then printf "gemini-3.7-flash-medium\\tGemini 3.7 Flash (Medium)\\ngemini-3.7-flash-low\\tGemini 3.7 Flash (Low)\\n"; exit 0; fi
 if [ "$1" = "agentapi" ]; then echo "trajectory not found: __t3_probe__" >&2; exit 1; fi
 exit 2
 `),

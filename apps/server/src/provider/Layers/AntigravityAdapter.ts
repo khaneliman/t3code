@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics globalDate:off
 // @effect-diagnostics globalTimers:off
 // @effect-diagnostics runEffectInsideEffect:off
 import {
@@ -17,6 +18,7 @@ import {
   TurnId,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -43,9 +45,8 @@ import {
   antigravityLanguageServerRpc,
   makeAntigravityEnvironment,
   resolveAntigravityBinaryPath,
-  resolveAntigravityCliModelAlias,
   resolveAntigravityHomePath,
-  resolveAntigravityModelLabel,
+  resolveAntigravityModelId,
   resolveAntigravitySettingsPath,
   transcriptPathForConversation,
 } from "./AntigravityProvider.ts";
@@ -67,7 +68,9 @@ const AgentApiNewConversationResponse = Schema.Struct({
     }),
   }),
 });
-const decodeNewConversationResponse = Schema.decodeUnknownSync(AgentApiNewConversationResponse);
+const decodeNewConversationResponseJson = Schema.decodeUnknownSync(
+  Schema.fromJsonString(AgentApiNewConversationResponse),
+);
 
 export interface AntigravityAdapterLiveOptions {
   readonly instanceId?: ProviderInstanceId;
@@ -585,9 +588,9 @@ function runAgyPrintDefault(
 async function ensureAntigravityCliSettings(input: {
   readonly settings: AntigravitySettings;
   readonly cwd: string;
-  readonly modelLabel?: string;
+  readonly modelId?: string;
 }): Promise<void> {
-  const { settings, cwd, modelLabel } = input;
+  const { settings, cwd, modelId } = input;
   const settingsPath = resolveAntigravitySettingsPath(settings);
   await NodeFSP.mkdir(NodePath.dirname(settingsPath), { recursive: true });
   let parsed: Record<string, unknown> = {};
@@ -609,8 +612,8 @@ async function ensureAntigravityCliSettings(input: {
     ];
     changed = true;
   }
-  if (modelLabel && parsed.model !== modelLabel) {
-    parsed.model = modelLabel;
+  if (modelId && parsed.model !== modelId) {
+    parsed.model = modelId;
     changed = true;
   }
   if (!changed) return;
@@ -623,12 +626,12 @@ async function ensureAntigravityCliSettings(input: {
 function buildAgyPrintArgs(input: {
   readonly prompt: string;
   readonly conversationId?: string | undefined;
-  readonly modelAlias?: string | undefined;
+  readonly modelId?: string | undefined;
   readonly fullAccess: boolean;
 }): ReadonlyArray<string> {
   return [
     ...(input.conversationId ? ["--conversation", input.conversationId] : []),
-    ...(input.modelAlias ? ["--model", input.modelAlias] : []),
+    ...(input.modelId ? ["--model", input.modelId] : []),
     ...(input.fullAccess ? ["--dangerously-skip-permissions"] : []),
     "--print-timeout",
     "30m0s",
@@ -1078,7 +1081,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
     "AntigravityAdapter.startSession",
   )(function* (input) {
     const createdAt = yield* currentTimestamp;
-    const modelLabel = resolveAntigravityModelLabel(input.modelSelection);
+    const modelId = resolveAntigravityModelId(input.modelSelection);
     const resume = parseResumeCursor(input.resumeCursor);
     const session: ProviderSession = {
       provider: PROVIDER,
@@ -1086,7 +1089,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
       status: "ready",
       runtimeMode: input.runtimeMode,
       cwd: input.cwd ?? serverConfig.cwd,
-      ...(modelLabel ? { model: modelLabel } : {}),
+      ...(modelId ? { model: modelId } : {}),
       threadId: input.threadId,
       ...(resume ? { resumeCursor: resume } : {}),
       createdAt,
@@ -1142,10 +1145,9 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
         });
       }
 
-      const turnStartTime = Date.now();
+      const turnStartTime = yield* Clock.currentTimeMillis;
       const cwd = context.session.cwd ?? serverConfig.cwd;
-      const modelLabel = resolveAntigravityModelLabel(input.modelSelection);
-      const modelAlias = resolveAntigravityCliModelAlias(input.modelSelection);
+      const modelId = resolveAntigravityModelId(input.modelSelection);
       const endpoint = endpointFor(context);
       const env = {
         ...baseEnv,
@@ -1162,7 +1164,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
           ensureAntigravityCliSettings({
             settings,
             cwd,
-            ...(modelLabel ? { modelLabel } : {}),
+            ...(modelId ? { modelId } : {}),
           }),
         catch: (cause) =>
           new ProviderAdapterRequestError({
@@ -1219,7 +1221,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
         ...context.session,
         status: "running",
         activeTurnId: turnId,
-        ...(modelLabel ? { model: modelLabel } : {}),
+        ...(modelId ? { model: modelId } : {}),
         updatedAt,
       };
       context.turns.push({ id: turnId, items: [] });
@@ -1233,7 +1235,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
           rawSource,
         }),
         type: "turn.started",
-        payload: modelLabel ? { model: modelLabel } : {},
+        payload: modelId ? { model: modelId } : {},
       });
 
       if (context.conversationId) {
@@ -1247,16 +1249,11 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
       const args = endpoint
         ? context.conversationId
           ? ["agentapi", "send-message", context.conversationId, fullPrompt]
-          : [
-              "agentapi",
-              "new-conversation",
-              ...(modelAlias ? [`--model=${modelAlias}`] : []),
-              fullPrompt,
-            ]
+          : ["agentapi", "new-conversation", ...(modelId ? [`--model=${modelId}`] : []), fullPrompt]
         : buildAgyPrintArgs({
             prompt: fullPrompt,
             conversationId: context.conversationId,
-            modelAlias,
+            modelId,
             fullAccess: context.session.runtimeMode === "full-access",
           });
       const commandMethod = endpoint ? (args[1] ?? "agentapi") : "agy.print";
@@ -1307,8 +1304,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
             if (!context.conversationId) {
               if (endpoint) {
                 try {
-                  const parsedJson = JSON.parse(stdout) as unknown;
-                  const decoded = decodeNewConversationResponse(parsedJson);
+                  const decoded = decodeNewConversationResponseJson(stdout);
                   context.conversationId = decoded.response.newConversation.conversationId;
                   const cursor = { conversationId: context.conversationId };
                   const resumedAt = yield* currentTimestamp;

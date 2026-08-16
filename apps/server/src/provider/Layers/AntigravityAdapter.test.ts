@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics globalDate:off
 // @effect-diagnostics globalTimers:off
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
@@ -53,6 +54,7 @@ const makeTestServerConfig = (baseDir: string) =>
       staticDir: undefined,
       devUrl: undefined,
       noBrowser: true,
+      devAllowedOrigins: [],
       startupPresentation: "browser",
       desktopBootstrapToken: undefined,
       autoBootstrapProjectFromCwd: false,
@@ -280,7 +282,16 @@ describe("AntigravityAdapter sessions", () => {
         });
         const threadId = ThreadId.make("thread-send");
         yield* adapter.startSession({ threadId, runtimeMode: "full-access", cwd: baseDir });
-        const first = yield* adapter.sendTurn({ threadId, input: "hello", attachments: [] });
+        const first = yield* adapter.sendTurn({
+          threadId,
+          input: "hello",
+          attachments: [],
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("antigravity"),
+            model: "gemini-3.7-flash-medium",
+            options: [{ id: "reasoningEffort", value: "gemini-3.7-flash-high" }],
+          },
+        });
         yield* adapter.sendTurn({ threadId, input: "next", attachments: [] });
 
         let waited = 0;
@@ -293,6 +304,7 @@ describe("AntigravityAdapter sessions", () => {
         expect(calls[0]).toContain("--print");
         expect(calls[0]).toContain("--dangerously-skip-permissions");
         expect(calls[0]).not.toContain("--conversation");
+        expect(calls[0]).toEqual(expect.arrayContaining(["--model", "gemini-3.7-flash-high"]));
         expect(calls[1]).toEqual(expect.arrayContaining(["--conversation", "conv-1", "--print"]));
         yield* adapter.stopSession(threadId);
       } finally {

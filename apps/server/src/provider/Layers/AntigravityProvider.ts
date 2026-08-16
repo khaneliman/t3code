@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics globalFetch:off - Antigravity language-server RPC is a raw HTTP bridge.
 import {
   type AntigravitySettings,
   type ModelCapabilities,
@@ -45,37 +46,41 @@ const DEFAULT_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
 
-export const CURRENT_ANTIGRAVITY_MODEL_LABELS = [
-  "Gemini 3.5 Flash (Medium)",
-  "Gemini 3.5 Flash (High)",
-  "Gemini 3.5 Flash (Low)",
-  "Gemini 3.1 Pro (Low)",
-  "Gemini 3.1 Pro (High)",
-  "Claude Sonnet 4.6 (Thinking)",
-  "Claude Opus 4.6 (Thinking)",
-  "GPT-OSS 120B (Medium)",
+export interface AntigravityModelInventoryEntry {
+  readonly id: string;
+  readonly label: string;
+}
+
+export const CURRENT_ANTIGRAVITY_MODELS: ReadonlyArray<AntigravityModelInventoryEntry> = [
+  { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
+  { id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
+  { id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
+  { id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)" },
+  { id: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)" },
+  { id: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)" },
+  { id: "gemini-3.5-flash-high", label: "Gemini 3.5 Flash (High)" },
+  { id: "gemini-3.5-flash-medium", label: "Gemini 3.5 Flash (Medium)" },
+  { id: "gemini-3.5-flash-low", label: "Gemini 3.5 Flash (Low)" },
+  { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
+  { id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+  { id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
+  { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
 ] as const;
 
 const ANTIGRAVITY_MODEL_ALIASES: Readonly<Record<string, string>> = {
-  gemini: "Gemini 3.5 Flash (Medium)",
-  flash: "Gemini 3.5 Flash (Medium)",
-  flash_lite: "Gemini 3.5 Flash (Low)",
+  gemini: "Gemini 3.7 Flash (Medium)",
+  flash: "Gemini 3.7 Flash (Medium)",
+  flash_lite: "Gemini 3.7 Flash (Low)",
   pro: "Gemini 3.1 Pro (High)",
-  low: "Gemini 3.5 Flash (Low)",
-  medium: "Gemini 3.5 Flash (Medium)",
+  low: "Gemini 3.7 Flash (Low)",
+  medium: "Gemini 3.7 Flash (Medium)",
   high: "Gemini 3.1 Pro (High)",
 };
 
-const ANTIGRAVITY_CLI_MODEL_ALIASES: Readonly<Record<string, string>> = {
-  "Gemini 3.5 Flash (Low)": "flash_lite",
-  "Gemini 3.5 Flash (Medium)": "flash",
-  "Gemini 3.5 Flash (High)": "flash",
-  "Gemini 3.1 Pro (Low)": "pro",
-  "Gemini 3.1 Pro (High)": "pro",
-  flash_lite: "flash_lite",
-  flash: "flash",
-  pro: "pro",
-};
+const ANTIGRAVITY_MODEL_IDS_BY_LABEL: Readonly<Record<string, string>> = Object.fromEntries(
+  CURRENT_ANTIGRAVITY_MODELS.map((model) => [model.label, model.id]),
+);
 
 const REASONING_EFFORT_LABELS: Readonly<Record<string, string>> = {
   low: "Low",
@@ -166,10 +171,11 @@ function defaultReasoningEffortFor(efforts: ReadonlySet<string>): string | undef
 }
 
 function antigravityModelCapabilities(
-  reasoningEfforts: ReadonlySet<string>,
+  variants: ReadonlyMap<string, string>,
   defaultReasoningEffort: string | undefined,
 ): ModelCapabilities {
-  if (reasoningEfforts.size === 0) return DEFAULT_MODEL_CAPABILITIES;
+  if (variants.size === 0) return DEFAULT_MODEL_CAPABILITIES;
+  const currentValue = defaultReasoningEffort ? variants.get(defaultReasoningEffort) : undefined;
 
   return createModelCapabilities({
     optionDescriptors: [
@@ -177,102 +183,112 @@ function antigravityModelCapabilities(
         id: "reasoningEffort",
         label: "Reasoning",
         type: "select",
-        options: sortReasoningEfforts([...reasoningEfforts]).map((effort) =>
-          effort === defaultReasoningEffort
-            ? { id: effort, label: reasoningEffortLabel(effort), isDefault: true }
-            : { id: effort, label: reasoningEffortLabel(effort) },
-        ),
-        ...(defaultReasoningEffort ? { currentValue: defaultReasoningEffort } : {}),
+        options: sortReasoningEfforts([...variants.keys()]).flatMap((effort) => {
+          const id = variants.get(effort);
+          if (!id) return [];
+          return effort === defaultReasoningEffort
+            ? [{ id, label: reasoningEffortLabel(effort), isDefault: true }]
+            : [{ id, label: reasoningEffortLabel(effort) }];
+        }),
+        ...(currentValue ? { currentValue } : {}),
       },
     ],
   });
 }
 
-export function parseAntigravityModelsOutput(output: string): ReadonlyArray<string> {
+export function parseAntigravityModelsOutput(
+  output: string,
+): ReadonlyArray<AntigravityModelInventoryEntry> {
   return output
     .split(/\r?\n/g)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const separatorIndex = line.indexOf("\t");
+      if (separatorIndex < 0) return { id: line, label: line };
+
+      const id = line.slice(0, separatorIndex).trim();
+      const label = line.slice(separatorIndex + 1).trim();
+      return id && label ? { id, label } : { id: line, label: line };
+    });
 }
 
 export function buildAntigravityProviderModels(input: {
-  readonly labels: ReadonlyArray<string>;
+  readonly models: ReadonlyArray<AntigravityModelInventoryEntry>;
   readonly customLabels?: ReadonlyArray<string>;
 }): ReadonlyArray<ServerProviderModel> {
   const groups = new Map<
     string,
     {
       readonly baseName: string;
-      readonly reasoningEfforts: Set<string>;
+      readonly variants: Map<string, string>;
+      defaultModelId: string;
       isCustom: boolean;
     }
   >();
 
-  const add = (label: string, isCustom: boolean) => {
+  const add = (model: AntigravityModelInventoryEntry, isCustom: boolean) => {
+    const { id, label } = model;
     const mapped = ANTIGRAVITY_MODEL_ALIASES[label.trim()] ?? label;
     const parsed = parseAntigravityModelLabel(mapped);
     if (!parsed) return;
 
     const existing = groups.get(parsed.baseName);
     if (existing) {
-      if (parsed.reasoningEffort) existing.reasoningEfforts.add(parsed.reasoningEffort);
+      if (parsed.reasoningEffort) existing.variants.set(parsed.reasoningEffort, id);
       existing.isCustom = existing.isCustom && isCustom;
       return;
     }
 
     groups.set(parsed.baseName, {
       baseName: parsed.baseName,
-      reasoningEfforts: new Set(parsed.reasoningEffort ? [parsed.reasoningEffort] : []),
+      variants: new Map(parsed.reasoningEffort ? [[parsed.reasoningEffort, id]] : []),
+      defaultModelId: id,
       isCustom,
     });
   };
 
-  for (const label of input.labels) add(label, false);
-  for (const label of input.customLabels ?? []) add(label, true);
+  for (const model of input.models) add(model, false);
+  for (const label of input.customLabels ?? []) add({ id: label, label }, true);
 
   return [...groups.values()].map((group) => {
-    const defaultReasoningEffort = defaultReasoningEffortFor(group.reasoningEfforts);
+    const defaultReasoningEffort = defaultReasoningEffortFor(new Set(group.variants.keys()));
+    const defaultModelId = defaultReasoningEffort
+      ? (group.variants.get(defaultReasoningEffort) ?? group.defaultModelId)
+      : group.defaultModelId;
     return {
-      slug: formatAntigravityModelLabel(
-        defaultReasoningEffort
-          ? { baseName: group.baseName, reasoningEffort: defaultReasoningEffort }
-          : { baseName: group.baseName },
-      ),
+      slug: defaultModelId,
       name: group.baseName,
       isCustom: group.isCustom,
-      capabilities: antigravityModelCapabilities(group.reasoningEfforts, defaultReasoningEffort),
+      capabilities: antigravityModelCapabilities(group.variants, defaultReasoningEffort),
     };
   });
 }
 
-export function resolveAntigravityModelLabel(
+export function resolveAntigravityModelId(
   modelSelection: ModelSelection | null | undefined,
 ): string | undefined {
   const rawModel = modelSelection?.model?.trim();
   if (!rawModel) return undefined;
 
+  const selectedVariant = getModelSelectionStringOptionValue(modelSelection, "reasoningEffort");
+  if (selectedVariant && !REASONING_EFFORT_LABELS[selectedVariant]) return selectedVariant;
+
+  if (selectedVariant && /-(?:low|medium|high|thinking)$/.test(rawModel)) {
+    return rawModel.replace(/-(?:low|medium|high|thinking)$/, `-${selectedVariant}`);
+  }
+
   const mapped = ANTIGRAVITY_MODEL_ALIASES[rawModel] ?? rawModel;
   const parsed = parseAntigravityModelLabel(mapped);
   if (!parsed) return undefined;
 
-  const selectedReasoning = getModelSelectionStringOptionValue(modelSelection, "reasoningEffort");
-  const reasoningEffort = selectedReasoning ?? parsed.reasoningEffort;
-  return formatAntigravityModelLabel(
+  const reasoningEffort = selectedVariant ?? parsed.reasoningEffort;
+  const label = formatAntigravityModelLabel(
     reasoningEffort
       ? { baseName: parsed.baseName, reasoningEffort }
       : { baseName: parsed.baseName },
   );
-}
-
-export function resolveAntigravityCliModelAlias(
-  modelSelection: ModelSelection | null | undefined,
-): string | undefined {
-  const label = resolveAntigravityModelLabel(modelSelection);
-  if (label && ANTIGRAVITY_CLI_MODEL_ALIASES[label]) {
-    return ANTIGRAVITY_CLI_MODEL_ALIASES[label];
-  }
-  const rawModel = modelSelection?.model?.trim();
-  return rawModel ? ANTIGRAVITY_CLI_MODEL_ALIASES[rawModel] : undefined;
+  return ANTIGRAVITY_MODEL_IDS_BY_LABEL[label] ?? label;
 }
 
 export function resolveAntigravityBinaryPath(settings: AntigravitySettings): string {
@@ -308,12 +324,12 @@ export function transcriptPathForConversation(input: {
   );
 }
 
-function antigravityModelsFromLabels(
+function antigravityModelsFromInventory(
   settings: AntigravitySettings,
-  labels: ReadonlyArray<string> = CURRENT_ANTIGRAVITY_MODEL_LABELS,
+  models: ReadonlyArray<AntigravityModelInventoryEntry> = CURRENT_ANTIGRAVITY_MODELS,
 ): ReadonlyArray<ServerProviderModel> {
   return buildAntigravityProviderModels({
-    labels: labels.length > 0 ? labels : CURRENT_ANTIGRAVITY_MODEL_LABELS,
+    models: models.length > 0 ? models : CURRENT_ANTIGRAVITY_MODELS,
     customLabels: settings.customModels,
   });
 }
@@ -590,7 +606,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
   ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
     const platform = yield* HostProcessPlatform;
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
-    const fallbackModels = antigravityModelsFromLabels(settings);
+    const fallbackModels = antigravityModelsFromInventory(settings);
 
     if (!settings.enabled) {
       return buildServerProvider({
@@ -674,11 +690,11 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
       Effect.timeoutOption(CLI_PROBE_TIMEOUT_MS),
       Effect.result,
     );
-    const liveModelLabels =
+    const liveModels =
       Result.isSuccess(modelsResult) && Option.isSome(modelsResult.success)
         ? parseAntigravityModelsOutput(modelsResult.success.value.stdout)
         : [];
-    const models = antigravityModelsFromLabels(settings, liveModelLabels);
+    const models = antigravityModelsFromInventory(settings, liveModels);
 
     const endpoint = resolveAntigravityDaemonEndpoint(settings, environment, platform);
     const daemonResult =
@@ -727,7 +743,7 @@ export const makePendingAntigravityProvider = Effect.fn("makePendingAntigravityP
       presentation: ANTIGRAVITY_PRESENTATION,
       enabled: settings.enabled,
       checkedAt,
-      models: antigravityModelsFromLabels(settings),
+      models: antigravityModelsFromInventory(settings),
       probe: {
         installed: false,
         version: null,

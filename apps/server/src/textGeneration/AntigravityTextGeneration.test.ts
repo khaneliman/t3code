@@ -19,7 +19,7 @@ async function makeFakeAgy(baseDir: string, body: string): Promise<string> {
   return binaryPath;
 }
 
-function threadTitleInput(model = "Gemini 3.5 Flash (Low)") {
+function threadTitleInput(model = "gemini-3.7-flash-low") {
   return {
     cwd: process.cwd(),
     message: "Implement Antigravity support",

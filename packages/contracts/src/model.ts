@@ -154,7 +154,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, strin
   [CURSOR_DRIVER_KIND]: "auto",
   [GROK_DRIVER_KIND]: "grok-build",
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
-  [ANTIGRAVITY_DRIVER_KIND]: "Gemini 3.5 Flash (Medium)",
+  [ANTIGRAVITY_DRIVER_KIND]: "gemini-3.7-flash-medium",
 };
 
 /** Per-provider text generation model defaults. */
@@ -165,7 +165,7 @@ export const DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER: Partial<
   [CLAUDE_DRIVER_KIND]: "claude-haiku-4-5",
   [CURSOR_DRIVER_KIND]: "composer-2",
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
-  [ANTIGRAVITY_DRIVER_KIND]: "Gemini 3.5 Flash (Low)",
+  [ANTIGRAVITY_DRIVER_KIND]: "gemini-3.7-flash-low",
 };
 
 export const MODEL_SLUG_ALIASES_BY_PROVIDER: Partial<
@@ -216,13 +216,13 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Partial<
   },
   [OPENCODE_DRIVER_KIND]: {},
   [ANTIGRAVITY_DRIVER_KIND]: {
-    gemini: "Gemini 3.5 Flash (Medium)",
-    flash: "Gemini 3.5 Flash (Medium)",
-    flash_lite: "Gemini 3.5 Flash (Low)",
-    pro: "Gemini 3.1 Pro (High)",
-    low: "Gemini 3.5 Flash (Low)",
-    medium: "Gemini 3.5 Flash (Medium)",
-    high: "Gemini 3.1 Pro (High)",
+    gemini: "gemini-3.7-flash-medium",
+    flash: "gemini-3.7-flash-medium",
+    flash_lite: "gemini-3.7-flash-low",
+    pro: "gemini-3.1-pro-high",
+    low: "gemini-3.7-flash-low",
+    medium: "gemini-3.7-flash-medium",
+    high: "gemini-3.1-pro-high",
   },
 };
 

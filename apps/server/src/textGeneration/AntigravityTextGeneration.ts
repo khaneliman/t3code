@@ -14,8 +14,7 @@ import * as NodeChildProcess from "node:child_process";
 import {
   makeAntigravityEnvironment,
   resolveAntigravityBinaryPath,
-  resolveAntigravityCliModelAlias,
-  resolveAntigravityModelLabel,
+  resolveAntigravityModelId,
 } from "../provider/Layers/AntigravityProvider.ts";
 import {
   buildBranchNamePrompt,
@@ -33,6 +32,7 @@ import {
 
 const ANTIGRAVITY_TEXT_GENERATION_TIMEOUT_MS = 180_000;
 const ANTIGRAVITY_TEXT_GENERATION_PRINT_TIMEOUT = "3m0s";
+const encodeJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 function runAgyPrint(
   settings: AntigravitySettings,
@@ -99,21 +99,20 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
     readonly outputSchema: S;
     readonly modelSelection: ModelSelection;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
-    const schemaJson = JSON.stringify(toJsonSchemaObject(outputSchema));
+    const schemaJson = encodeJsonString(toJsonSchemaObject(outputSchema));
     const fullPrompt = [
       `<T3_WORKSPACE_CONTEXT>\nCurrent working directory: ${cwd}\nWhen the user refers to "this folder", "here", or the current folder, use this directory.\n</T3_WORKSPACE_CONTEXT>`,
       prompt,
       `Return only a JSON object matching this JSON Schema:\n${schemaJson}`,
     ].join("\n\n");
-    const modelLabel = resolveAntigravityModelLabel(modelSelection);
-    const modelAlias = resolveAntigravityCliModelAlias(modelSelection);
+    const modelId = resolveAntigravityModelId(modelSelection);
     const env = makeAntigravityEnvironment(settings, environment, platform);
     const stdout = yield* Effect.tryPromise({
       try: () =>
         runAgyPrint(
           settings,
           [
-            ...(modelAlias ? ["--model", modelAlias] : []),
+            ...(modelId ? ["--model", modelId] : []),
             "--print-timeout",
             ANTIGRAVITY_TEXT_GENERATION_PRINT_TIMEOUT,
             "--print",
@@ -143,7 +142,7 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
         (cause) =>
           new TextGenerationError({
             operation,
-            detail: `Antigravity returned invalid structured output${modelLabel ? ` using ${modelLabel}` : ""}.`,
+            detail: `Antigravity returned invalid structured output${modelId ? ` using ${modelId}` : ""}.`,
             cause,
           }),
       ),
